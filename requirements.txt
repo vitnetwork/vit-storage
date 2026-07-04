@@ -4,7 +4,7 @@ reedsolo>=1.7.0
 aiofiles
 httpx
 python-multipart
-pydantic>=2.0
+pydantic>=2.13.4
 pydantic-settings
 python-dotenv
 google-auth
