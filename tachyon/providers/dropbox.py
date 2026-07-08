@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, List
 from tachyon.providers.base import CloudProvider
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,9 @@ class DropboxProvider(CloudProvider):
         return self._dbx
 
     async def upload_fragment(self, data: bytes, name: str) -> bool:
+        if ".." in name or name.startswith("/"):
+             logger.warning(f"Potential path traversal attempt: {name}")
+             return False
         try:
             dbx = self._get_client()
             loop = asyncio.get_event_loop()
@@ -43,6 +46,26 @@ class DropboxProvider(CloudProvider):
             logger.error(f"Dropbox download failed [{self.account_id}]: {e}")
             return None
 
+    async def delete_fragment(self, name: str) -> bool:
+        try:
+            dbx = self._get_client()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: dbx.files_delete_v2(f"/tachyon/{name}"))
+            return True
+        except Exception as e:
+            logger.error(f"Dropbox delete failed [{self.account_id}]: {e}")
+            return False
+
+    async def list_fragments(self) -> List[str]:
+        try:
+            dbx = self._get_client()
+            loop = asyncio.get_event_loop()
+            res = await loop.run_in_executor(None, lambda: dbx.files_list_folder("/tachyon"))
+            return [entry.name for entry in res.entries]
+        except Exception as e:
+            logger.error(f"Dropbox list failed [{self.account_id}]: {e}")
+            return []
+
     async def get_quota(self) -> dict:
         try:
             dbx = self._get_client()
@@ -59,7 +82,7 @@ class DropboxProvider(CloudProvider):
         try:
             dbx = self._get_client()
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, dbx.users_get_current_account)
-        except Exception:
-            pass
+            await loop.run_in_executor(None, lambda: dbx.users_get_current_account)
+        except Exception as e:
+            logger.error(f"Dropbox latency check failed: {e}")
         return (time.monotonic() - t) * 1000

@@ -3,7 +3,7 @@ import io
 import json
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, List
 from tachyon.providers.base import CloudProvider
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,9 @@ class GoogleDriveProvider(CloudProvider):
         return self._service
 
     async def upload_fragment(self, data: bytes, name: str) -> bool:
+        if ".." in name or name.startswith("/"):
+             logger.warning(f"Potential path traversal attempt: {name}")
+             return False
         try:
             svc = self._get_service()
             from googleapiclient.http import MediaIoBaseUpload
@@ -73,6 +76,34 @@ class GoogleDriveProvider(CloudProvider):
             logger.error(f"GDrive download failed [{self.account_id}]: {e}")
             return None
 
+    async def delete_fragment(self, name: str) -> bool:
+        try:
+            svc = self._get_service()
+            loop = asyncio.get_event_loop()
+            def _delete():
+                results = svc.files().list(q=f"name='{name}'", fields="files(id)").execute()
+                files = results.get("files", [])
+                for f in files:
+                    svc.files().delete(fileId=f["id"]).execute()
+            await loop.run_in_executor(None, _delete)
+            return True
+        except Exception as e:
+            logger.error(f"GDrive delete failed [{self.account_id}]: {e}")
+            return False
+
+    async def list_fragments(self) -> List[str]:
+        try:
+            svc = self._get_service()
+            loop = asyncio.get_event_loop()
+            def _list():
+                q = f"'{self.folder_id}' in parents" if self.folder_id else None
+                results = svc.files().list(q=q, fields="files(name)").execute()
+                return [f["name"] for f in results.get("files", [])]
+            return await loop.run_in_executor(None, _list)
+        except Exception as e:
+            logger.error(f"GDrive list failed [{self.account_id}]: {e}")
+            return []
+
     async def get_quota(self) -> dict:
         try:
             svc = self._get_service()
@@ -90,6 +121,6 @@ class GoogleDriveProvider(CloudProvider):
             svc = self._get_service()
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, lambda: svc.about().get(fields="user").execute())
-        except Exception:
-            pass
+        except Exception as e:
+             logger.error(f"GDrive latency check failed: {e}")
         return (time.monotonic() - t) * 1000

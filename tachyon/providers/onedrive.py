@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, List
 from tachyon.providers.base import CloudProvider
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,9 @@ class OneDriveProvider(CloudProvider):
         return result["access_token"]
 
     async def upload_fragment(self, data: bytes, name: str) -> bool:
+        if ".." in name or name.startswith("/"):
+             logger.warning(f"Potential path traversal attempt: {name}")
+             return False
         try:
             import httpx
             token = self._get_token()
@@ -59,6 +62,34 @@ class OneDriveProvider(CloudProvider):
             logger.error(f"OneDrive download failed [{self.account_id}]: {e}")
             return None
 
+    async def delete_fragment(self, name: str) -> bool:
+        try:
+            import httpx
+            token = self._get_token()
+            folder_id = os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+            url = f"https://graph.microsoft.com/v1.0/me/drive/items/{folder_id}:/{name}"
+            async with httpx.AsyncClient() as client:
+                res = await client.delete(url, headers={"Authorization": f"Bearer {token}"})
+            return res.status_code == 204
+        except Exception as e:
+            logger.error(f"OneDrive delete failed [{self.account_id}]: {e}")
+            return False
+
+    async def list_fragments(self) -> List[str]:
+        try:
+            import httpx
+            token = self._get_token()
+            folder_id = os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+            url = f"https://graph.microsoft.com/v1.0/me/drive/items/{folder_id}/children"
+            async with httpx.AsyncClient() as client:
+                res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            if res.status_code == 200:
+                return [item["name"] for item in res.json().get("value", [])]
+            return []
+        except Exception as e:
+            logger.error(f"OneDrive list failed [{self.account_id}]: {e}")
+            return []
+
     async def get_quota(self) -> dict:
         try:
             import httpx
@@ -79,6 +110,6 @@ class OneDriveProvider(CloudProvider):
             token = self._get_token()
             async with httpx.AsyncClient() as client:
                 await client.get("https://graph.microsoft.com/v1.0/me/drive", headers={"Authorization": f"Bearer {token}"})
-        except Exception:
-            pass
+        except Exception as e:
+             logger.error(f"OneDrive latency check failed: {e}")
         return (time.monotonic() - t) * 1000

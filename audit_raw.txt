@@ -1,0 +1,179 @@
+./.git/hooks/fsmonitor-watchman.sample:11:# The hook is passed a version (currently 2) and last update token
+./.git/hooks/sendemail-validate.sample:22:# Replace the TODO placeholders with appropriate checks according to your
+./.git/hooks/sendemail-validate.sample:27:	# TODO: Replace with appropriate checks (e.g. spell checking).
+./.git/hooks/sendemail-validate.sample:35:	# TODO: Replace with appropriate checks for this patch
+./.git/hooks/sendemail-validate.sample:41:	# TODO: Replace with appropriate checks for the whole series
+./ROADMAP.md:9:- [ ] Add unit test suite under `tests/`
+./ROADMAP.md:10:- [ ] Add branch protection on `main` (currently missing)
+./ROADMAP.md:11:- [ ] Add CI workflow: lint (ruff/flake8) + pytest + coverage
+./ROADMAP.md:14:- [ ] Incrementally move `tachyon/core` → `core/`
+./ROADMAP.md:15:- [ ] Extract `sdk/` and `cli/` as installable sub-packages
+./ROADMAP.md:16:- [ ] Introduce `gateway/` as the single public entrypoint
+./ROADMAP.md:19:- [ ] `integrity/` — background fragment health checks + auto-repair
+./ROADMAP.md:20:- [ ] `replication/` — configurable replication factor per provider
+./ROADMAP.md:21:- [ ] `monitoring/` — Prometheus metrics + health dashboards
+./ROADMAP.md:24:- [ ] Publish `sdk/` as a standalone Python package
+./ROADMAP.md:25:- [ ] Docker image published to GHCR
+./ROADMAP.md:26:- [ ] Helm chart / docker-compose for self-hosting
+./CONTRIBUTING.md:10:4. Ensure CI (lint, build, tests) passes before requesting review.
+./tachyon/core/worker.py:16:                # Placeholder for verification logic
+./tachyon/providers/gdrive.py:94:            pass
+./tachyon/providers/onedrive.py:83:            pass
+./tachyon/providers/dropbox.py:64:            pass
+./.github/PULL_REQUEST_TEMPLATE.md:6:- [ ] Bug fix
+./.github/PULL_REQUEST_TEMPLATE.md:7:- [ ] New feature
+./.github/PULL_REQUEST_TEMPLATE.md:8:- [ ] Breaking change
+./.github/PULL_REQUEST_TEMPLATE.md:9:- [ ] Documentation
+./.github/PULL_REQUEST_TEMPLATE.md:12:- [ ] Tests added/updated
+./.github/PULL_REQUEST_TEMPLATE.md:13:- [ ] CI passes
+./.github/PULL_REQUEST_TEMPLATE.md:14:- [ ] Docs updated (if applicable)
+./.github/PULL_REQUEST_TEMPLATE.md:15:- [ ] No secrets or credentials committed
+./ARCHITECTURE.md:25:no functional code was moved as part of this scaffolding pass):
+./.git/objects/info
+./.git/refs/tags
+./docs/audit
+.dockerignore
+.editorconfig
+.env.example
+.git
+.github
+ARCHITECTURE.md
+AUDIT.md
+CHANGELOG.md
+CONTRIBUTING.md
+Dockerfile
+LICENSE
+README.md
+ROADMAP.md
+SECURITY.md
+api
+audit_raw.txt
+cache
+chunking
+cli
+core
+docker-compose.yml
+docs
+encryption
+gateway
+integrity
+main.py
+metadata
+monitoring
+network
+render.yaml
+replication
+requirements.txt
+sdk
+storage
+tachyon
+tests
+Directory: .
+.gitkeep
+Directory: ./chunking
+HEAD
+config
+description
+hooks
+index
+info
+logs
+objects
+packed-refs
+refs
+shallow
+Directory: ./.git
+applypatch-msg.sample
+commit-msg.sample
+fsmonitor-watchman.sample
+post-update.sample
+pre-applypatch.sample
+pre-commit.sample
+pre-merge-commit.sample
+pre-push.sample
+pre-rebase.sample
+pre-receive.sample
+prepare-commit-msg.sample
+push-to-checkout.sample
+sendemail-validate.sample
+update.sample
+Directory: ./.git/hooks
+info
+pack
+Directory: ./.git/objects
+heads
+remotes
+tags
+Directory: ./.git/refs
+exclude
+Directory: ./.git/info
+HEAD
+refs
+Directory: ./.git/logs
+.gitkeep
+Directory: ./sdk
+.gitkeep
+Directory: ./metadata
+.gitkeep
+Directory: ./api
+.gitkeep
+Directory: ./replication
+adr
+architecture
+audit
+Directory: ./docs
+README.md
+Directory: ./docs/architecture
+Directory: ./docs/audit
+0001-rename-tachyon-to-storage.md
+Directory: ./docs/adr
+.gitkeep
+Directory: ./core
+.gitkeep
+Directory: ./network
+.gitkeep
+Directory: ./cli
+.gitkeep
+Directory: ./encryption
+__init__.py
+api
+core
+providers
+Directory: ./tachyon
+__init__.py
+router.py
+Directory: ./tachyon/api
+__init__.py
+scheduler.py
+worker.py
+Directory: ./tachyon/core
+__init__.py
+base.py
+dropbox.py
+gdrive.py
+onedrive.py
+Directory: ./tachyon/providers
+.gitkeep
+Directory: ./monitoring
+CODEOWNERS
+ISSUE_TEMPLATE
+PULL_REQUEST_TEMPLATE.md
+dependabot.yml
+workflows
+Directory: ./.github
+ci.yml
+Directory: ./.github/workflows
+bug_report.md
+feature_request.md
+Directory: ./.github/ISSUE_TEMPLATE
+.gitkeep
+Directory: ./integrity
+.gitkeep
+Directory: ./storage
+.gitkeep
+Directory: ./gateway
+README.md
+test_health.py
+Directory: ./tests
+.gitkeep
+Directory: ./cache
