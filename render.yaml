@@ -1,12 +1,11 @@
 services:
   - type: web
-    name: vit-tachyon
-    runtime: python
+    name: vit-storage-svc
+    runtime: docker # Changed to docker to use the fixed Dockerfile
     region: oregon
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    # No buildCommand/startCommand needed for Docker runtime usually,
+    # but we can specify if needed. Render will use Dockerfile.
     envVars:
       - key: ENVIRONMENT
         value: production
