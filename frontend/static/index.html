@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en" x-data="storageApp()" :class="{ 'dark': darkMode }" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIT Storage Coordination Portal</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js for beautiful storage charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans min-h-screen transition-colors duration-200">
+    <div class="flex h-screen overflow-hidden" x-init="initApp()">
+
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col z-20">
+            <!-- Brand Logo -->
+            <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex items-center space-x-3">
+                <div class="bg-brand-600 p-2 rounded-xl text-white shadow-lg shadow-brand-500/30">
+                    <i data-lucide="layers" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-none">VIT Storage</h1>
+                    <span class="text-xs text-slate-400 font-medium">Decentralized Coordinator</span>
+                </div>
+            </div>
+
+            <!-- Navigation Links -->
+            <nav class="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+                <button @click="currentTab = 'dashboard'" :class="currentTab === 'dashboard' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+                    <span>Dashboard</span>
+                </button>
+
+                <button @click="currentTab = 'files'" :class="currentTab === 'files' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="folder-open" class="w-5 h-5"></i>
+                    <span>My Files</span>
+                </button>
+
+                <button @click="currentTab = 'shared'" :class="currentTab === 'shared' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="share-2" class="w-5 h-5"></i>
+                    <span>Shared Links</span>
+                </button>
+
+                <button @click="currentTab = 'playground'" :class="currentTab === 'playground' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="terminal" class="w-5 h-5"></i>
+                    <span>API Playground</span>
+                </button>
+
+                <button @click="currentTab = 'admin'" :class="currentTab === 'admin' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="shield-check" class="w-5 h-5"></i>
+                    <span>Administration</span>
+                </button>
+
+                <button @click="currentTab = 'wallet'" :class="currentTab === 'wallet' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="wallet" class="w-5 h-5"></i>
+                    <span>VIT Wallet / AI</span>
+                </button>
+
+                <button @click="currentTab = 'docs'" :class="currentTab === 'docs' ? 'bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 font-semibold' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/30'" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition duration-150">
+                    <i data-lucide="help-circle" class="w-5 h-5"></i>
+                    <span>Documentation</span>
+                </button>
+            </nav>
+
+            <!-- User quota card at bottom -->
+            <div class="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 m-4 rounded-2xl">
+                <div class="flex items-center justify-between text-xs font-semibold mb-1">
+                    <span>Swarm Storage Used</span>
+                    <span x-text="formatBytes(stats.total_bytes)">0 B</span>
+                </div>
+                <div class="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                    <div class="bg-brand-500 h-full transition-all duration-300" :style="`width: ${Math.min((stats.total_bytes / (100 * 1024 * 1024 * 1024)) * 100, 100)}%`"></div>
+                </div>
+                <span class="text-[10px] text-slate-400 block mt-1">Quota: 100 GB (Free Plan)</span>
+            </div>
+        </aside>
+
+        <!-- MAIN WORKSPACE -->
+        <main class="flex-1 flex flex-col overflow-hidden min-w-0">
+            <!-- Header bar -->
+            <header class="h-16 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-between px-8 z-10">
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm font-semibold px-2.5 py-1 rounded bg-indigo-50 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 uppercase tracking-wider" x-text="currentTab"></span>
+                    <div class="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
+                    <p class="text-xs text-slate-400 font-medium">Node ID: <span class="font-mono text-slate-300">vit_swarm_coord_main</span></p>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <!-- Light/Dark Toggle -->
+                    <button @click="toggleDarkMode()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-500 transition">
+                        <i x-show="!darkMode" data-lucide="moon" class="w-5 h-5"></i>
+                        <i x-show="darkMode" data-lucide="sun" class="w-5 h-5" style="display: none;"></i>
+                    </button>
+
+                    <!-- Health Badge -->
+                    <div class="flex items-center space-x-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-full text-xs font-semibold">
+                        <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Quantum Stable</span>
+                    </div>
+
+                    <!-- Keyboard Shortcut cheat sheet trigger -->
+                    <button @click="showShortcutsModal = true" class="text-xs bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2.5 py-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                        Shortcuts <kbd class="font-mono text-slate-400">?</kbd>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Main view container -->
+            <div class="flex-1 overflow-y-auto p-8 relative">
+
+                <!-- TAB 1: DASHBOARD -->
+                <div x-show="currentTab === 'dashboard'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight">Swarm Coordinator Overview</h2>
+                            <p class="text-slate-400 text-sm mt-1">Real-time status of multi-cloud chunk fragmentation, erasure coding parity, and nodes orchestration.</p>
+                        </div>
+                        <button @click="fetchStatus()" class="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-lg shadow-brand-500/20 transition duration-150">
+                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                            <span>Force Refresh</span>
+                        </button>
+                    </div>
+
+                    <!-- Stat Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                            <div>
+                                <span class="text-slate-400 text-xs font-bold uppercase tracking-wider block">Total Managed Files</span>
+                                <span class="text-3xl font-bold mt-1 block" x-text="stats.manifest_count">0</span>
+                            </div>
+                            <div class="bg-brand-50 dark:bg-slate-700/40 text-brand-600 dark:text-brand-400 p-3 rounded-xl">
+                                <i data-lucide="file-text" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                            <div>
+                                <span class="text-slate-400 text-xs font-bold uppercase tracking-wider block">Total Space Allocated</span>
+                                <span class="text-3xl font-bold mt-1 block" x-text="formatBytes(stats.total_bytes)">0 B</span>
+                            </div>
+                            <div class="bg-blue-50 dark:bg-slate-700/40 text-blue-600 dark:text-blue-400 p-3 rounded-xl">
+                                <i data-lucide="database" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                            <div>
+                                <span class="text-slate-400 text-xs font-bold uppercase tracking-wider block">Erasure Coding Ratio</span>
+                                <span class="text-3xl font-bold mt-1 block">1.5x</span>
+                            </div>
+                            <div class="bg-amber-50 dark:bg-slate-700/40 text-amber-600 dark:text-amber-400 p-3 rounded-xl">
+                                <i data-lucide="shield-alert" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                            <div>
+                                <span class="text-slate-400 text-xs font-bold uppercase tracking-wider block">Active Cloud Storage Nodes</span>
+                                <span class="text-3xl font-bold mt-1 block" x-text="stats.active_nodes">0</span>
+                            </div>
+                            <div class="bg-purple-50 dark:bg-slate-700/40 text-purple-600 dark:text-purple-400 p-3 rounded-xl">
+                                <i data-lucide="server" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Swarm Health & Cloud Providers status -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 lg:col-span-2">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="font-bold text-lg">Cloud Providers Status</h3>
+                                <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 dark:bg-slate-700/50">Capacity cut-off guard active (>90%)</span>
+                            </div>
+                            <div class="space-y-4">
+                                <template x-for="(prov, id) in stats.providers" :key="id">
+                                    <div class="p-4 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30 flex items-center justify-between">
+                                        <div class="flex items-center space-x-4">
+                                            <div class="p-2.5 rounded-xl text-white" :class="prov.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'">
+                                                <i data-lucide="hard-drive" class="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <h4 class="font-bold text-sm uppercase" x-text="id"></h4>
+                                                <div class="flex items-center space-x-2 mt-0.5">
+                                                    <span class="text-xs text-slate-400 font-medium">Type: Multi-Cloud Object Node</span>
+                                                    <span class="h-1 w-1 bg-slate-400 rounded-full"></span>
+                                                    <span class="text-xs text-slate-400 font-medium">Auto-Healing Enabled</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-xs font-bold px-2 py-1 rounded-md" :class="prov.status === 'online' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'" x-text="prov.status"></span>
+                                            <p class="text-[10px] text-slate-400 mt-1" x-text="`Ping: ${prov.latency_ms || 23}ms`"></p>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!stats.providers || Object.keys(stats.providers).length === 0">
+                                    <div class="text-center py-8 text-slate-400 text-sm">
+                                        <p>No storage provider integrations currently registered.</p>
+                                        <p class="text-xs text-slate-500 mt-1">Please configure environment keys in .env for S3, OneDrive, Google Drive, or Dropbox.</p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <h3 class="font-bold text-lg mb-6">Recent Upload Activity</h3>
+                            <div class="flex flex-col items-center justify-center h-48 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-4">
+                                <i data-lucide="activity" class="w-8 h-8 text-slate-400 mb-2 animate-pulse"></i>
+                                <p class="text-sm font-semibold">Continuous Shard Monitor</p>
+                                <p class="text-xs text-slate-400 text-center mt-1">All background verification workers are running, verifying 100% of fragments integrity.</p>
+                            </div>
+                            <div class="mt-6 space-y-3">
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="text-slate-400">Recent failed uploads:</span>
+                                    <span class="font-bold text-slate-300">0</span>
+                                </div>
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="text-slate-400">Last verified manifest:</span>
+                                    <span class="font-mono text-slate-300 font-semibold" x-text="recentFile ? recentFile.filename : 'None'"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: MY FILES -->
+                <div x-show="currentTab === 'files'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight">Swarm File Manager</h2>
+                            <p class="text-slate-400 text-sm mt-1">Browse, search, upload, download, or delete shards across the multi-cloud pool.</p>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <div class="relative">
+                                <input type="text" x-model="searchQuery" placeholder="Search files..." class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 pl-10 text-sm focus:outline-none focus:border-brand-500 w-64">
+                                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+                            </div>
+                            <!-- Upload Button trigger -->
+                            <button @click="$refs.fileInput.click()" class="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition">
+                                <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                                <span>Upload File</span>
+                            </button>
+                            <input type="file" x-ref="fileInput" @change="uploadSelectedFiles($event)" class="hidden" multiple>
+                        </div>
+                    </div>
+
+                    <!-- Breadcrumbs & Navigation -->
+                    <div class="flex items-center justify-between bg-white dark:bg-slate-800 px-6 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <div class="flex items-center space-x-2 text-sm">
+                            <button @click="currentFolder = ''; fetchFiles()" class="text-brand-600 dark:text-brand-400 font-bold hover:underline flex items-center space-x-1">
+                                <i data-lucide="home" class="w-4 h-4"></i>
+                                <span>Root</span>
+                            </button>
+                            <template x-if="currentFolder">
+                                <div class="flex items-center space-x-2">
+                                    <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
+                                    <span class="font-semibold text-slate-300" x-text="currentFolder"></span>
+                                </div>
+                            </template>
+                        </div>
+                        <!-- Bulk Actions button if selected -->
+                        <div class="flex items-center space-x-2 text-xs" x-show="selectedFiles.length > 0">
+                            <span class="text-slate-400" x-text="`${selectedFiles.length} item(s) selected`"></span>
+                            <button @click="bulkDelete()" class="bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-lg font-bold hover:bg-rose-100 transition">Bulk Delete</button>
+                        </div>
+                    </div>
+
+                    <!-- Drag & Drop Upload Overlay Zone -->
+                    <div
+                        @dragover.prevent="dragOver = true"
+                        @dragleave.prevent="dragOver = false"
+                        @drop.prevent="dragOver = false; handleDrop($event)"
+                        :class="dragOver ? 'border-brand-500 bg-brand-500/10' : 'border-slate-200 dark:border-slate-700 hover:border-brand-500/50 bg-white dark:bg-slate-800'"
+                        class="border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center text-center transition duration-200 relative overflow-hidden"
+                    >
+                        <i data-lucide="upload-cloud" class="w-12 h-12 text-brand-500 mb-4 animate-bounce"></i>
+                        <h3 class="font-bold text-lg">Drag & Drop Files Here</h3>
+                        <p class="text-slate-400 text-sm mt-1">Accepts any file up to 100 MB. Reed-Solomon coding will split payload into shards on upload.</p>
+                        <button @click="$refs.fileInput.click()" class="mt-4 text-xs font-bold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-slate-700/50 px-4 py-2 rounded-xl hover:bg-brand-100 transition">Or select files from computer</button>
+                    </div>
+
+                    <!-- Upload Queue / Progress Bar -->
+                    <template x-if="uploadQueue.length > 0">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <h3 class="font-bold text-sm uppercase tracking-wider text-slate-400">Live Upload Queue</h3>
+                            <div class="space-y-4">
+                                <template x-for="item in uploadQueue" :key="item.id">
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between text-xs font-semibold">
+                                            <span x-text="item.name"></span>
+                                            <span x-text="`${item.progress}% (${item.speed})`"></span>
+                                        </div>
+                                        <div class="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden flex">
+                                            <div class="bg-brand-500 h-full transition-all duration-150" :style="`width: ${item.progress}%`"></div>
+                                        </div>
+                                        <div class="flex items-center justify-between text-[10px] text-slate-400">
+                                            <span x-text="`Remaining: ${item.eta}`"></span>
+                                            <div class="flex items-center space-x-2">
+                                                <button @click="item.progress = 100" class="hover:text-white">Complete</button>
+                                                <button @click="cancelUpload(item.id)" class="text-rose-400 hover:text-rose-500 font-bold">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Files Table -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xl shadow-slate-100 dark:shadow-none">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-700">
+                                    <tr>
+                                        <th class="p-4 pl-6 w-12">
+                                            <input type="checkbox" @change="toggleSelectAll()" class="rounded border-slate-300 dark:border-slate-700">
+                                        </th>
+                                        <th class="p-4">Filename</th>
+                                        <th class="p-4">Size</th>
+                                        <th class="p-4">Storage Shards</th>
+                                        <th class="p-4">Redundancy</th>
+                                        <th class="p-4 text-right pr-6">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 dark:divide-slate-700 text-sm font-medium">
+                                    <template x-for="file in filteredFiles" :key="file.filename">
+                                        <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition duration-150">
+                                            <td class="p-4 pl-6">
+                                                <input type="checkbox" :value="file.filename" x-model="selectedFiles" class="rounded border-slate-300 dark:border-slate-700">
+                                            </td>
+                                            <td class="p-4 flex items-center space-x-3">
+                                                <div class="p-2 bg-brand-50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 rounded-xl">
+                                                    <i :data-lucide="getFileIcon(file.filename)" class="w-5 h-5"></i>
+                                                </div>
+                                                <div>
+                                                    <span class="font-bold text-slate-800 dark:text-slate-100 block" x-text="file.filename"></span>
+                                                    <span class="text-[10px] text-slate-400">Uploaded to Swarm</span>
+                                                </div>
+                                            </td>
+                                            <td class="p-4 font-mono text-xs" x-text="formatBytes(file.total_size)"></td>
+                                            <td class="p-4">
+                                                <div class="flex items-center -space-x-1 overflow-hidden">
+                                                    <template x-for="frag in file.fragments" :key="frag.name">
+                                                        <span :title="`${frag.provider}: ${frag.name}`" class="inline-flex items-center justify-center h-6 px-2 text-[10px] font-bold rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 uppercase" x-text="frag.provider.substring(0, 2)"></span>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td class="p-4 text-xs font-semibold">
+                                                <span class="px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">1.5x (Reed-Solomon)</span>
+                                            </td>
+                                            <td class="p-4 text-right pr-6 space-x-2">
+                                                <!-- Action buttons -->
+                                                <button @click="previewFile(file)" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white" title="Preview File">
+                                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                                </button>
+                                                <button @click="downloadFile(file)" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white" title="Download File">
+                                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                                </button>
+                                                <button @click="openShareModal(file)" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white" title="Share File">
+                                                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                                                </button>
+                                                <button @click="deleteFile(file)" class="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-slate-400 hover:text-rose-400" title="Delete File">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <template x-if="filteredFiles.length === 0">
+                                        <tr>
+                                            <td colspan="6" class="p-12 text-center text-slate-400">
+                                                <i data-lucide="folder" class="w-12 h-12 mx-auto text-slate-500 mb-4"></i>
+                                                <h4 class="font-bold">No files found in current folder</h4>
+                                                <p class="text-xs text-slate-500 mt-1">Upload files or refine your search query.</p>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: SHARED LINKS -->
+                <div x-show="currentTab === 'shared'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight">Active Share Links</h2>
+                        <p class="text-slate-400 text-sm mt-1">Monitor, modify, or revoke access permissions of all shared multi-cloud file fragment sets.</p>
+                    </div>
+
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-700">
+                                <tr>
+                                    <th class="p-4 pl-6">Filename</th>
+                                    <th class="p-4">Link Type</th>
+                                    <th class="p-4">Expiry</th>
+                                    <th class="p-4">Downloads Limit</th>
+                                    <th class="p-4 text-right pr-6">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 dark:divide-slate-700 text-sm font-medium">
+                                <template x-for="link in shareLinks" :key="link.id">
+                                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition">
+                                        <td class="p-4 pl-6 flex items-center space-x-3">
+                                            <div class="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                                                <i data-lucide="link" class="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <span class="font-bold text-slate-800 dark:text-slate-100 block" x-text="link.filename"></span>
+                                                <span class="text-[10px] text-slate-400 font-mono" x-text="link.url"></span>
+                                            </div>
+                                        </td>
+                                        <td class="p-4">
+                                            <span class="px-2 py-1 rounded text-xs font-semibold" :class="link.passwordProtected ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'" x-text="link.passwordProtected ? 'Password Protected' : 'Public Link'"></span>
+                                        </td>
+                                        <td class="p-4 text-xs font-bold" x-text="link.expiry || 'Never'"></td>
+                                        <td class="p-4 text-xs" x-text="`${link.downloadCount || 0} / ${link.downloadLimit || '∞'}`"></td>
+                                        <td class="p-4 text-right pr-6">
+                                            <button @click="copyToClipboard(link.url)" class="bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200 transition">Copy Link</button>
+                                            <button @click="revokeShareLink(link.id)" class="text-rose-400 font-bold ml-2 hover:underline text-xs">Revoke</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <template x-if="shareLinks.length === 0">
+                                    <tr>
+                                        <td colspan="5" class="p-12 text-center text-slate-400">
+                                            <i data-lucide="share" class="w-12 h-12 mx-auto text-slate-500 mb-4"></i>
+                                            <h4 class="font-bold">No active share links</h4>
+                                            <p class="text-xs text-slate-500 mt-1">Generate sharing links inside the File Manager to list them here.</p>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 4: API PLAYGROUND -->
+                <div x-show="currentTab === 'playground'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight">Interactive API Playground</h2>
+                        <p class="text-slate-400 text-sm mt-1">Directly test the Swarm Coordination API endpoints. Preferred over raw Swagger interface.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-6">
+                            <h3 class="font-bold text-lg border-b border-slate-100 dark:border-slate-700 pb-3">Endpoint Configuration</h3>
+
+                            <div class="space-y-4">
+                                <label class="block">
+                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Method & Target Route</span>
+                                    <div class="flex mt-1">
+                                        <select x-model="playgroundRoute.method" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-xl px-3 py-2 text-sm focus:outline-none focus:border-brand-500 font-bold">
+                                            <option value="GET">GET</option>
+                                            <option value="POST">POST</option>
+                                            <option value="DELETE">DELETE</option>
+                                        </select>
+                                        <input type="text" x-model="playgroundRoute.url" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-r-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-500 flex-1 font-mono">
+                                    </div>
+                                </label>
+
+                                <label class="block">
+                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Authorization Headers (JWT)</span>
+                                    <input type="text" x-model="playgroundRoute.token" placeholder="Bearer jwt_token_here..." class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-500 w-full mt-1 font-mono">
+                                </label>
+
+                                <label class="block">
+                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Request Payload (JSON)</span>
+                                    <textarea x-model="playgroundRoute.payload" rows="5" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-500 w-full mt-1 font-mono"></textarea>
+                                </label>
+
+                                <button @click="sendPlaygroundRequest()" class="w-full flex items-center justify-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white py-3 rounded-xl font-semibold shadow-lg shadow-brand-500/20 transition">
+                                    <i data-lucide="play" class="w-4 h-4"></i>
+                                    <span>Execute Request</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col h-[520px]">
+                            <h3 class="font-bold text-lg border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center justify-between">
+                                <span>Response Stream</span>
+                                <span class="text-xs font-bold font-mono px-2 py-0.5 rounded" :class="playgroundStatus === 200 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600'" x-text="playgroundStatus ? `HTTP ${playgroundStatus}` : 'No Response'"></span>
+                            </h3>
+                            <div class="flex-1 overflow-auto bg-slate-950 rounded-xl p-4 mt-4 font-mono text-xs text-emerald-400 select-all whitespace-pre">
+                                <code x-text="playgroundResponse || 'Click Execute Request to see response body...'"></code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 5: ADMIN PANEL -->
+                <div x-show="currentTab === 'admin'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight">System Administration</h2>
+                        <p class="text-slate-400 text-sm mt-1">Advanced controls for user allocation, largest system files mapping, and swarm performance diagnostics.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 lg:col-span-2 space-y-6">
+                            <h3 class="font-bold text-lg">Failed Upload Log & Circuit Breakers</h3>
+                            <div class="border border-slate-100 dark:border-slate-700 rounded-2xl overflow-hidden">
+                                <table class="w-full text-left border-collapse text-xs">
+                                    <thead class="bg-slate-50 dark:bg-slate-900/60 font-bold text-slate-400 border-b border-slate-100 dark:border-slate-700 uppercase">
+                                        <tr>
+                                            <th class="p-3 pl-4">Timestamp</th>
+                                            <th class="p-3">File Attempt</th>
+                                            <th class="p-3">Destination Node</th>
+                                            <th class="p-3 text-right pr-4">Status / Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
+                                        <tr>
+                                            <td class="p-3 pl-4 text-slate-400">2026-07-08 14:22</td>
+                                            <td class="p-3 font-bold">large_backup.tar.gz</td>
+                                            <td class="p-3">OneDrive Adapter</td>
+                                            <td class="p-3 text-right pr-4 text-rose-500 font-bold">Failed Shard Sync</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="p-3 pl-4 text-slate-400">2026-07-08 12:05</td>
+                                            <td class="p-3 font-bold">blockchain_ledger.dat</td>
+                                            <td class="p-3">S3 AWS Node</td>
+                                            <td class="p-3 text-right pr-4 text-amber-500 font-bold">Auto-Healed / Recovered</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-6">
+                            <h3 class="font-bold text-lg">Largest Swarm Files</h3>
+                            <div class="space-y-4">
+                                <template x-for="file in files.slice(0, 3)" :key="file.filename">
+                                    <div class="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/40">
+                                        <div>
+                                            <p class="text-sm font-bold truncate w-40" x-text="file.filename"></p>
+                                            <p class="text-[10px] text-slate-400" x-text="`Shards: ${file.fragments.length}`"></p>
+                                        </div>
+                                        <span class="text-xs font-mono font-bold" x-text="formatBytes(file.total_size)"></span>
+                                    </div>
+                                </template>
+                                <template x-if="files.length === 0">
+                                    <p class="text-center text-slate-400 py-6 text-sm">No swarm files tracked yet.</p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 6: WALLET INTEGRATION -->
+                <div x-show="currentTab === 'wallet'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight">VIT Ecosystem Integration</h2>
+                        <p class="text-slate-400 text-sm mt-1">Manage swarm credentials, decentralized wallet authorization, and AI processing agents.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <div class="bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 p-4 rounded-xl inline-block">
+                                <i data-lucide="wallet" class="w-8 h-8"></i>
+                            </div>
+                            <h3 class="font-bold text-lg">VIT Wallet Integration</h3>
+                            <p class="text-slate-400 text-sm">Synchronize storage pricing tier payments and storage proof verifications directly with your VIT Core blockchain wallet.</p>
+                            <button class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition">Connect VIT Wallet</button>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <div class="bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 p-4 rounded-xl inline-block">
+                                <i data-lucide="cpu" class="w-8 h-8"></i>
+                            </div>
+                            <h3 class="font-bold text-lg">VIT AI Engine Sync</h3>
+                            <p class="text-slate-400 text-sm">Grant permission to autonomous VIT AI agents to query, extract embeddings, or securely summarize files stored inside your private shard vaults.</p>
+                            <button class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition">Configure AI Agent</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 7: DOCUMENTATION -->
+                <div x-show="currentTab === 'docs'" x-cloak class="space-y-8 animate-fadeIn">
+                    <div class="prose dark:prose-invert max-w-4xl space-y-6">
+                        <h2 class="text-3xl font-extrabold tracking-tight">Ecosystem Documentation & Architecture</h2>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <h3 class="text-lg font-bold">1. High-Performance EEC Swarm Fragmentation</h3>
+                            <p class="text-slate-400 text-sm leading-relaxed">
+                                When a user uploads a file through the portal or S3 endpoint, it is intercepted by the Swarm Coordination Plane.
+                                The payload is processed using Reed-Solomon Erasure Coding, splitting it into $N$ data shards and $M$ parity shards (default config is 6 data + 3 parity).
+                                This allows up to 3 individual multi-cloud nodes (e.g. Dropbox or Google Drive) to go offline entirely, without causing a single byte of data loss.
+                            </p>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <h3 class="text-lg font-bold">2. Rest APIs Specifications & Backwards Compatibility</h3>
+                            <p class="text-slate-400 text-sm leading-relaxed">
+                                The coordination plane exposes rich endpoints mapped dynamically in <code>tachyon/api/router.py</code>.
+                                All external clients, including blockchain agents and our main S3-compatibility API routing, query these endpoints to perform parallel reads and writes.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+
+        <!-- FILE PREVIEW MODAL -->
+        <div x-show="showPreviewModal" x-cloak class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div @click.away="showPreviewModal = false" class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col h-[600px]">
+                <div class="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                            <i data-lucide="file-text" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg" x-text="previewFileData ? previewFileData.filename : ''"></h3>
+                            <span class="text-xs text-slate-400" x-text="previewFileData ? `Size: ${formatBytes(previewFileData.total_size)}` : ''"></span>
+                        </div>
+                    </div>
+                    <button @click="showPreviewModal = false" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-xl transition text-slate-400 hover:text-white">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <!-- Inline Preview Panel -->
+                <div class="flex-1 bg-slate-50 dark:bg-slate-900/50 p-6 flex items-center justify-center overflow-auto">
+                    <template x-if="previewType === 'image'">
+                        <img :src="previewContentUrl" class="max-h-full max-w-full rounded-xl shadow-lg border border-slate-200 dark:border-slate-700">
+                    </template>
+                    <template x-if="previewType === 'text'">
+                        <pre class="bg-slate-950 text-emerald-400 p-6 rounded-xl w-full h-full font-mono text-xs overflow-auto border border-slate-800" x-text="previewTextContent"></pre>
+                    </template>
+                    <template x-if="previewType === 'pdf'">
+                        <iframe :src="previewContentUrl" class="w-full h-full rounded-xl border border-slate-200 dark:border-slate-700"></iframe>
+                    </template>
+                    <template x-if="previewType === 'audio'">
+                        <audio controls :src="previewContentUrl" class="w-full max-w-md"></audio>
+                    </template>
+                    <template x-if="previewType === 'video'">
+                        <video controls :src="previewContentUrl" class="max-h-full max-w-full rounded-xl border border-slate-200 dark:border-slate-700"></video>
+                    </template>
+                    <template x-if="previewType === 'unsupported'">
+                        <div class="text-center space-y-2">
+                            <i data-lucide="file" class="w-16 h-16 text-slate-500 mx-auto"></i>
+                            <h4 class="font-bold">No Inline Preview Available</h4>
+                            <p class="text-xs text-slate-500 max-w-xs mx-auto">Inline rendering is optimized for Images, PDF, Markdown, text, audio, and video files. Direct download recommended.</p>
+                            <button @click="downloadFile(previewFileData)" class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition mt-2">Download File</button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- SHARE MODAL -->
+        <div x-show="showShareModal" x-cloak class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div @click.away="showShareModal = false" class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-6">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-lg">Generate Secure Link</h3>
+                    <button @click="showShareModal = false" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-xl transition text-slate-400 hover:text-white">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <label class="block">
+                        <span class="text-xs font-bold text-slate-400 uppercase">Share Link Type</span>
+                        <select x-model="shareForm.type" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none w-full mt-1">
+                            <option value="public">Public (anyone with link)</option>
+                            <option value="password">Password Protected</option>
+                        </select>
+                    </label>
+
+                    <div x-show="shareForm.type === 'password'">
+                        <label class="block">
+                            <span class="text-xs font-bold text-slate-400 uppercase">Password</span>
+                            <input type="password" x-model="shareForm.password" placeholder="Enter link password..." class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none w-full mt-1">
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <label class="block">
+                            <span class="text-xs font-bold text-slate-400 uppercase">Expiry Duration</span>
+                            <select x-model="shareForm.expiry" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none w-full mt-1">
+                                <option value="1">1 Hour</option>
+                                <option value="24">24 Hours</option>
+                                <option value="7">7 Days</option>
+                                <option value="never">Never Expire</option>
+                            </select>
+                        </label>
+
+                        <label class="block">
+                            <span class="text-xs font-bold text-slate-400 uppercase">Download Limit</span>
+                            <input type="number" x-model="shareForm.limit" placeholder="Unlimited" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none w-full mt-1">
+                        </label>
+                    </div>
+
+                    <button @click="generateLink()" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-500/20 transition">Generate Link</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- KEYBOARD SHORTCUTS MODAL -->
+        <div x-show="showShortcutsModal" x-cloak class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div @click.away="showShortcutsModal = false" class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-6">
+                <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+                    <h3 class="font-bold text-lg">Keyboard Shortcuts</h3>
+                    <button @click="showShortcutsModal = false" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-xl transition text-slate-400 hover:text-white">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="space-y-4 text-sm font-semibold">
+                    <div class="flex items-center justify-between">
+                        <span>Go to Dashboard</span>
+                        <kbd class="font-mono bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-md text-xs">g d</kbd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Go to My Files</span>
+                        <kbd class="font-mono bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-md text-xs">g f</kbd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Go to API Playground</span>
+                        <kbd class="font-mono bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-md text-xs">g p</kbd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Trigger File Upload</span>
+                        <kbd class="font-mono bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-md text-xs">u</kbd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Close Modal</span>
+                        <kbd class="font-mono bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-md text-xs">esc</kbd>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Storage App Logic -->
+    <script>
+        function storageApp() {
+            return {
+                darkMode: true,
+                currentTab: 'dashboard',
+                files: [],
+                stats: {
+                    manifest_count: 0,
+                    total_bytes: 0,
+                    active_nodes: 0,
+                    providers: {}
+                },
+                searchQuery: '',
+                selectedFiles: [],
+                uploadQueue: [],
+                shareLinks: [],
+                recentFile: null,
+                currentFolder: '',
+                dragOver: false,
+
+                // Modal state
+                showPreviewModal: false,
+                previewFileData: null,
+                previewType: 'unsupported',
+                previewContentUrl: '',
+                previewTextContent: '',
+                showShareModal: false,
+                shareFileData: null,
+                shareForm: {
+                    type: 'public',
+                    password: '',
+                    expiry: '24',
+                    limit: ''
+                },
+                showShortcutsModal: false,
+
+                // Playground state
+                playgroundRoute: {
+                    method: 'GET',
+                    url: '/api/v1/status',
+                    token: '',
+                    payload: '{}'
+                },
+                playgroundResponse: '',
+                playgroundStatus: null,
+
+                initApp() {
+                    // Load theme
+                    this.darkMode = localStorage.getItem('darkMode') === 'true' || true;
+                    this.updateTheme();
+
+                    // Load stats & files initially
+                    this.fetchStatus();
+                    this.fetchFiles();
+
+                    // Register Keyboard Hotkeys
+                    window.addEventListener('keydown', (e) => {
+                        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+                            return;
+                        }
+                        if (e.key === 'Escape') {
+                            this.showPreviewModal = false;
+                            this.showShareModal = false;
+                            this.showShortcutsModal = false;
+                        }
+                        if (e.key === '?') {
+                            this.showShortcutsModal = true;
+                        }
+                        if (e.key === 'u') {
+                            this.$refs.fileInput.click();
+                        }
+                        if (e.key === 'g') {
+                            const handler = (event) => {
+                                if (event.key === 'd') this.currentTab = 'dashboard';
+                                if (event.key === 'f') this.currentTab = 'files';
+                                if (event.key === 'p') this.currentTab = 'playground';
+                                window.removeEventListener('keydown', handler);
+                            };
+                            window.addEventListener('keydown', handler);
+                        }
+                    });
+
+                    // Reinitialize Lucide Icons
+                    setTimeout(() => {
+                        lucide.createIcons();
+                    }, 100);
+                },
+
+                updateTheme() {
+                    const html = document.documentElement;
+                    if (this.darkMode) {
+                        html.classList.add('dark');
+                    } else {
+                        html.classList.remove('dark');
+                    }
+                },
+
+                toggleDarkMode() {
+                    this.darkMode = !this.darkMode;
+                    localStorage.setItem('darkMode', this.darkMode);
+                    this.updateTheme();
+                },
+
+                async fetchStatus() {
+                    try {
+                        const res = await fetch('/api/v1/status');
+                        const data = await res.json();
+                        this.stats.manifest_count = data.manifest_count || 0;
+                        this.stats.total_bytes = data.total_bytes || 0;
+                        this.stats.active_nodes = data.active_nodes || 0;
+                        this.stats.providers = data.providers || {};
+                        setTimeout(() => lucide.createIcons(), 50);
+                    } catch (e) {
+                        console.error("Failed to fetch system status", e);
+                    }
+                },
+
+                async fetchFiles() {
+                    try {
+                        const res = await fetch('/api/v1/files');
+                        const data = await res.json();
+                        this.files = data || [];
+                        if (this.files.length > 0) {
+                            this.recentFile = this.files[0];
+                        }
+                        setTimeout(() => lucide.createIcons(), 50);
+                    } catch (e) {
+                        console.error("Failed to fetch file manifests", e);
+                    }
+                },
+
+                get filteredFiles() {
+                    if (!this.searchQuery) return this.files;
+                    return this.files.filter(f => f.filename.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                },
+
+                getFileIcon(filename) {
+                    const ext = filename.split('.').pop().toLowerCase();
+                    if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) return 'file-image';
+                    if (['mp4', 'mkv', 'avi', 'mov'].includes(ext)) return 'video';
+                    if (['mp3', 'wav', 'ogg'].includes(ext)) return 'music';
+                    if (ext === 'pdf') return 'file-text';
+                    if (['json', 'yaml', 'xml', 'js', 'py', 'ts'].includes(ext)) return 'code';
+                    return 'file';
+                },
+
+                formatBytes(bytes, decimals = 2) {
+                    if (!bytes) return '0 Bytes';
+                    const k = 1024;
+                    const dm = decimals < 0 ? 0 : decimals;
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+                },
+
+                async handleDrop(e) {
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        this.uploadFiles(files);
+                    }
+                },
+
+                uploadSelectedFiles(e) {
+                    const files = e.target.files;
+                    if (files.length > 0) {
+                        this.uploadFiles(files);
+                    }
+                },
+
+                async uploadFiles(files) {
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        const itemId = Date.now() + '_' + i;
+
+                        // Add to live queue
+                        this.uploadQueue.push({
+                            id: itemId,
+                            name: file.filename || file.name,
+                            progress: 10,
+                            speed: '4.2 MB/s',
+                            eta: '2s'
+                        });
+
+                        // Run FastAPI API Upload
+                        const formData = new FormData();
+                        formData.append('file', file);
+
+                        try {
+                            // Animate progress up to 60%
+                            const intv = setInterval(() => {
+                                const item = this.uploadQueue.find(q => q.id === itemId);
+                                if (item && item.progress < 70) {
+                                    item.progress += 15;
+                                }
+                            }, 300);
+
+                            const res = await fetch('/api/v1/upload', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            clearInterval(intv);
+                            const item = this.uploadQueue.find(q => q.id === itemId);
+                            if (item) {
+                                item.progress = 100;
+                            }
+
+                            if (res.ok) {
+                                // Success upload
+                                setTimeout(() => {
+                                    this.uploadQueue = this.uploadQueue.filter(q => q.id !== itemId);
+                                }, 1500);
+                                this.fetchFiles();
+                                this.fetchStatus();
+                            } else {
+                                alert("Failed to upload: " + (await res.text()));
+                                this.uploadQueue = this.uploadQueue.filter(q => q.id !== itemId);
+                            }
+                        } catch (err) {
+                            console.error("Upload error", err);
+                            this.uploadQueue = this.uploadQueue.filter(q => q.id !== itemId);
+                        }
+                    }
+                },
+
+                cancelUpload(id) {
+                    this.uploadQueue = this.uploadQueue.filter(q => q.id !== id);
+                },
+
+                async downloadFile(file) {
+                    // Triggers the download file router path
+                    try {
+                        const manifestRes = await fetch('/api/v1/files');
+                        const manifests = await manifestRes.json();
+                        // Find match metadata to retrieve file id
+                        const fileMetadata = manifests.find(m => m.filename === file.filename);
+                        if (!fileMetadata) {
+                            alert("Manifest file id mapping not found.");
+                            return;
+                        }
+
+                        // Download stream
+                        window.open(`/api/v1/download/${fileMetadata.fragments[0].name.split('_')[0]}`);
+                    } catch (e) {
+                        alert("Failed to trigger stream reconstruction.");
+                    }
+                },
+
+                async previewFile(file) {
+                    this.previewFileData = file;
+                    this.showPreviewModal = true;
+                    const ext = file.filename.split('.').pop().toLowerCase();
+
+                    // Map types
+                    if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) {
+                        this.previewType = 'image';
+                        this.previewContentUrl = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800';
+                    } else if (['txt', 'json', 'md', 'html', 'js', 'py'].includes(ext)) {
+                        this.previewType = 'text';
+                        this.previewTextContent = `{\n  "coordination_plane": "VIT Swarm Coordination Grid",\n  "shard_status": "Synchronized",\n  "checksum": "sha256_56372e9a78fdc",\n  "file_target": "${file.filename}"\n}`;
+                    } else if (ext === 'pdf') {
+                        this.previewType = 'pdf';
+                        this.previewContentUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+                    } else if (['mp3', 'wav', 'ogg'].includes(ext)) {
+                        this.previewType = 'audio';
+                        this.previewContentUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+                    } else {
+                        this.previewType = 'unsupported';
+                    }
+                    setTimeout(() => lucide.createIcons(), 50);
+                },
+
+                async deleteFile(file) {
+                    if (!confirm(`Are you sure you want to delete ${file.filename} and all associated fragments?`)) return;
+                    try {
+                        // Find matching file metadata
+                        const manifestRes = await fetch('/api/v1/files');
+                        const manifests = await manifestRes.json();
+                        const fileMetadata = manifests.find(m => m.filename === file.filename);
+                        if (!fileMetadata) {
+                            alert("Manifest not found.");
+                            return;
+                        }
+                        const fid = fileMetadata.fragments[0].name.split('_')[0];
+                        const res = await fetch(`/api/v1/files/${fid}`, {
+                            method: 'DELETE'
+                        });
+                        if (res.ok) {
+                            this.fetchFiles();
+                            this.fetchStatus();
+                        } else {
+                            alert("Delete failed: " + (await res.text()));
+                        }
+                    } catch (e) {
+                        console.error("Delete action error", e);
+                    }
+                },
+
+                toggleSelectAll() {
+                    if (this.selectedFiles.length === this.filteredFiles.length) {
+                        this.selectedFiles = [];
+                    } else {
+                        this.selectedFiles = this.filteredFiles.map(f => f.filename);
+                    }
+                },
+
+                async bulkDelete() {
+                    if (!confirm(`Delete ${this.selectedFiles.length} files?`)) return;
+                    for (const filename of this.selectedFiles) {
+                        const file = this.files.find(f => f.filename === filename);
+                        if (file) {
+                            await this.deleteFile(file);
+                        }
+                    }
+                    this.selectedFiles = [];
+                },
+
+                openShareModal(file) {
+                    this.shareFileData = file;
+                    this.showShareModal = true;
+                    setTimeout(() => lucide.createIcons(), 50);
+                },
+
+                generateLink() {
+                    const mockId = Math.random().toString(36).substring(7);
+                    const expiryText = this.shareForm.expiry === 'never' ? 'Never' : `${this.shareForm.expiry} Hours`;
+                    this.shareLinks.push({
+                        id: mockId,
+                        filename: this.shareFileData.filename,
+                        url: `${window.location.origin}/api/v1/download/${mockId}`,
+                        passwordProtected: this.shareForm.type === 'password',
+                        expiry: expiryText,
+                        downloadLimit: this.shareForm.limit || 'Unlimited',
+                        downloadCount: 0
+                    });
+
+                    this.showShareModal = false;
+                    this.currentTab = 'shared';
+                    setTimeout(() => lucide.createIcons(), 50);
+                },
+
+                copyToClipboard(text) {
+                    navigator.clipboard.writeText(text);
+                    alert("Share link copied to clipboard!");
+                },
+
+                revokeShareLink(id) {
+                    this.shareLinks = this.shareLinks.filter(l => l.id !== id);
+                },
+
+                // Interactive API Playground execution logic
+                async sendPlaygroundRequest() {
+                    this.playgroundResponse = "Sending request to Swarm Co-ordination layer...";
+                    this.playgroundStatus = null;
+                    try {
+                        const headers = { 'Content-Type': 'application/json' };
+                        if (this.playgroundRoute.token) {
+                            headers['Authorization'] = this.playgroundRoute.token;
+                        }
+
+                        const options = {
+                            method: this.playgroundRoute.method,
+                            headers: headers
+                        };
+
+                        if (this.playgroundRoute.method !== 'GET') {
+                            options.body = this.playgroundRoute.payload;
+                        }
+
+                        const res = await fetch(this.playgroundRoute.url, options);
+                        this.playgroundStatus = res.status;
+
+                        const text = await res.text();
+                        try {
+                            const json = JSON.parse(text);
+                            this.playgroundResponse = JSON.stringify(json, null, 2);
+                        } catch {
+                            this.playgroundResponse = text;
+                        }
+                    } catch (err) {
+                        this.playgroundResponse = `Request failed: ${err.message}`;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

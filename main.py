@@ -4,9 +4,10 @@ import logging
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from tachyon.core.config import settings
@@ -32,6 +33,9 @@ logger.addFilter(RequestIDFilter())
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Service starting up...")
+
+    # Ensure frontend/static directory exists
+    os.makedirs("frontend/static", exist_ok=True)
 
     # 1. Startup Schema Creation & Validation
     try:
@@ -133,9 +137,32 @@ async def app_error_handler(request: Request, exc: AppError):
 from tachyon.api.router import router as api_router
 app.include_router(api_router, prefix="/api/v1")
 
+# Mount static files directory if it exists or create on the fly
+os.makedirs("frontend/static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
 @app.get("/")
 async def root():
-    return RedirectResponse(url="/health")
+    return RedirectResponse(url="/dashboard")
+
+@app.get("/dashboard", response_class=HTMLResponse, summary="VIT Storage Dashboard")
+async def dashboard():
+    index_path = os.path.join("frontend", "static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return HTMLResponse("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>VIT Storage Portal</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen">
+            <h1 class="text-3xl font-bold mb-4">VIT Storage UI Initializing</h1>
+            <p class="text-gray-400">The modern UI is being built. Please stand by...</p>
+        </body>
+        </html>
+    """)
 
 @app.get("/ping", summary="Service Liveness Ping")
 async def ping():
