@@ -42,8 +42,6 @@ class ReedSolomonCodec:
 
         # Generate parity shards
         # reedsolo RSCodec expects nsym as the number of parity symbols.
-        # Here we treat each byte position across all shards as a message.
-        # This is a bit slow in pure Python for large files, but consistent with the spec.
         rs = RSCodec(parity_shards)
 
         parity_chunks = [bytearray(shard_size) for _ in range(parity_shards)]
@@ -60,11 +58,14 @@ class ReedSolomonCodec:
 
     def decode(self, shards: List[Optional[bytes]],
                data_shards: int = DATA_SHARDS,
-               parity_shards: int = PARITY_SHARDS) -> bytes:
+               parity_shards: int = PARITY_SHARDS,
+               original_size: int = None) -> bytes:
         """
         Accepts None for missing shards (up to parity_shards can be None).
         Uses reedsolo to reconstruct missing shards.
         Concatenates data shards (not parity) and strips padding.
+        original_size: if provided, slices to exact length (avoids rstrip corruption
+                       for files that legitimately end with null bytes).
         Raises AppError(500, "storage_unrecoverable") if too many shards missing.
         """
         if len(shards) != data_shards + parity_shards:
@@ -75,11 +76,9 @@ class ReedSolomonCodec:
             raise AppError("storage_unrecoverable", status_code=500, code="storage_unrecoverable")
 
         if not missing_indices:
-            # No missing shards, just concatenate data shards
-            # We still need to know the original size to strip padding correctly,
-            # but the spec doesn't provide it in the decode signature.
-            # Assuming we strip trailing null bytes from the reconstructed data.
             data = b"".join(shards[:data_shards])
+            if original_size is not None:
+                return data[:original_size]
             return data.rstrip(b'\0')
 
         # Find shard size from first non-None shard
@@ -96,17 +95,14 @@ class ReedSolomonCodec:
         recovered_shards = [bytearray(shard_size) for _ in range(data_shards)]
 
         for i in range(shard_size):
-            # Construct chunk with erasures
-            # Each byte in shards[j] corresponds to one symbol in the RS block
             chunk = bytearray(data_shards + parity_shards)
             for j in range(data_shards + parity_shards):
                 if shards[j] is not None:
                     chunk[j] = shards[j][i]
                 else:
-                    chunk[j] = 0 # Placeholder for erasure
+                    chunk[j] = 0
 
             try:
-                # reedsolo.decode returns (decoded_msg, decoded_full, ecc)
                 decoded_msg, _, _ = rs.decode(chunk, erase_pos=missing_indices)
                 for j in range(data_shards):
                     recovered_shards[j][i] = decoded_msg[j]
@@ -114,6 +110,8 @@ class ReedSolomonCodec:
                 raise AppError("storage_unrecoverable", status_code=500, code="storage_unrecoverable")
 
         data = b"".join(recovered_shards)
+        if original_size is not None:
+            return data[:original_size]
         return data.rstrip(b'\0')
 
     def shard_hash(self, shard: bytes) -> str:
