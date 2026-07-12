@@ -1,14 +1,16 @@
 """
 Extended API Router — supplies missing endpoints for the VIT Storage frontend:
-  GET  /api/v1/nodes              — cloud provider node list
-  GET  /api/v1/storage/stats      — aggregated storage statistics
-  GET  /api/v1/quota              — quota info
-  GET  /api/v1/shared-links       — list shared links
-  POST /api/v1/shared-links       — create shared link
-  DELETE /api/v1/shared-links/{id} — revoke shared link
-  GET  /api/v1/shared/{token}     — public access to shared file (redirects download)
-  GET  /api/v1/admin/overview     — admin system overview
-  GET  /api/v1/wallet             — VIT wallet info
+  GET  /api/v1/nodes                     — cloud provider node list
+  GET  /api/v1/storage/stats             — aggregated storage statistics
+  GET  /api/v1/quota                     — quota info
+  GET  /api/v1/shared-links              — list shared links
+  POST /api/v1/shared-links              — create shared link
+  DELETE /api/v1/shared-links/{id}       — revoke shared link
+  GET  /api/v1/shared/{token}            — public access to shared file
+  GET  /api/v1/admin/overview            — admin system overview
+  GET  /api/v1/wallet                    — VIT wallet info
+  GET  /api/v1/providers/capabilities    — per-provider capability map
+  POST /api/v1/providers/register        — register a new provider at runtime
 """
 
 import uuid
@@ -28,12 +30,15 @@ from tachyon.core.models import TachyonManifest, SharedLink
 from tachyon.core.orchestrator import TachyonOrchestrator
 from tachyon.api.models import (
     NodeInfo, StorageStats, QuotaInfo, AdminOverview, WalletInfo,
-    SharedLinkCreate, SharedLinkResponse
+    SharedLinkCreate, SharedLinkResponse,
+    ProviderCapabilities, RegisterProviderRequest, RegisterProviderResponse
 )
 
 logger = logging.getLogger(__name__)
 extended_router = APIRouter()
 _orchestrator = TachyonOrchestrator()
+
+VERSION = "2.0.0"
 
 
 # ─────────────────────────────────────────────
@@ -53,6 +58,8 @@ async def list_nodes():
         logger.warning(f"Pool health check failed: {e}")
         health = {}
 
+    caps = _orchestrator.pool.discover_capabilities()
+
     nodes: List[NodeInfo] = []
     for provider_id, info in health.items():
         nodes.append(NodeInfo(
@@ -63,6 +70,7 @@ async def list_nodes():
             quarantined=info.get("quarantined", False),
             usage_pct=round(info.get("usage_pct", 0.0) * 100, 2),
             ping_ms=info.get("ping_ms"),
+            capabilities=caps.get(provider_id, []),
         ))
 
     if not nodes:
@@ -72,8 +80,9 @@ async def list_nodes():
             type="Multi-Cloud Object Node",
             healthy=True,
             quarantined=False,
-            usage_pct=0.83,
-            ping_ms=23,
+            usage_pct=0.0,
+            ping_ms=1,
+            capabilities=["upload", "download", "delete", "exists", "metadata", "health_check", "streaming", "directories"],
         ))
     return nodes
 
@@ -95,7 +104,6 @@ async def storage_stats(db: AsyncSession = Depends(get_db)):
         bytes_result = await db.execute(select(func.sum(TachyonManifest.size_bytes)))
         total_bytes = bytes_result.scalar() or 0
 
-        # Latest manifest filename
         latest_result = await db.execute(
             select(TachyonManifest.filename)
             .order_by(TachyonManifest.created_at.desc())
@@ -143,7 +151,7 @@ async def get_quota(db: AsyncSession = Depends(get_db)):
         used_bytes = 0
 
     total_bytes = 100 * 1024 * 1024 * 1024  # 100 GB free plan
-    used_pct = round((used_bytes / total_bytes) * 100, 2) if total_bytes > 0 else 0.0
+    used_pct = round((used_bytes / total_bytes) * 100, 4) if total_bytes > 0 else 0.0
 
     return QuotaInfo(
         used_bytes=used_bytes,
@@ -156,12 +164,6 @@ async def get_quota(db: AsyncSession = Depends(get_db)):
 # ─────────────────────────────────────────────
 # SHARED LINKS
 # ─────────────────────────────────────────────
-
-def _base_url(request=None) -> str:
-    if request:
-        return str(request.base_url).rstrip("/")
-    return ""
-
 
 @extended_router.get(
     "/shared-links",
@@ -204,7 +206,6 @@ async def create_shared_link(
     payload: SharedLinkCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify file exists
     manifest_result = await db.execute(
         select(TachyonManifest).where(TachyonManifest.file_id == payload.file_id)
     )
@@ -281,15 +282,12 @@ async def download_via_shared_link(token: str, db: AsyncSession = Depends(get_db
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found or revoked")
 
-    # Check expiry
     if link.expires_at and datetime.utcnow() > link.expires_at:
         raise HTTPException(status_code=410, detail="Shared link has expired")
 
-    # Check download limit
     if link.download_limit is not None and link.download_count >= link.download_limit:
         raise HTTPException(status_code=410, detail="Download limit reached")
 
-    # Retrieve file data
     from app.core.errors import AppError
     try:
         data = await _orchestrator.retrieve(db, link.file_id)
@@ -299,13 +297,18 @@ async def download_via_shared_link(token: str, db: AsyncSession = Depends(get_db
         logger.exception(f"Shared link retrieve failed for file_id={link.file_id}")
         raise HTTPException(status_code=500, detail="File could not be recovered")
 
-    # Increment counter
     link.download_count = (link.download_count or 0) + 1
     await db.commit()
 
+    manifest_result = await db.execute(
+        select(TachyonManifest).where(TachyonManifest.file_id == link.file_id)
+    )
+    manifest = manifest_result.scalar_one_or_none()
+    ct = (manifest.content_type if manifest and manifest.content_type else None) or "application/octet-stream"
+
     return Response(
         content=data,
-        media_type="application/octet-stream",
+        media_type=ct,
         headers={
             "Content-Disposition": f'attachment; filename="{link.filename}"',
         },
@@ -361,9 +364,103 @@ async def admin_overview(db: AsyncSession = Depends(get_db)):
         active_nodes=active_nodes,
         db_status=db_status,
         redis_status=redis_status,
-        version="1.1.0",
+        version=VERSION,
         uptime_info="Service running normally",
     )
+
+
+# ─────────────────────────────────────────────
+# PROVIDERS
+# ─────────────────────────────────────────────
+
+@extended_router.get(
+    "/providers/capabilities",
+    response_model=List[ProviderCapabilities],
+    summary="Provider capability map",
+    description="Returns the capability set for each registered storage provider.",
+)
+async def list_provider_capabilities():
+    try:
+        health = await _orchestrator.pool.health_check()
+    except Exception as e:
+        logger.warning(f"Pool health check failed: {e}")
+        health = {}
+
+    caps = _orchestrator.pool.discover_capabilities()
+    result = []
+
+    for pid, provider in _orchestrator.pool.providers.items():
+        info = health.get(pid, {})
+        provider_type = type(provider).__name__.replace("Provider", "").lower()
+        result.append(ProviderCapabilities(
+            provider_id=pid,
+            name=pid.replace("_", " ").title(),
+            provider_type=provider_type,
+            capabilities=caps.get(pid, []),
+            healthy=info.get("healthy", False),
+            quarantined=info.get("quarantined", False),
+            usage_pct=round(info.get("usage_pct", 0.0) * 100, 2),
+        ))
+
+    return result
+
+
+@extended_router.post(
+    "/providers/register",
+    response_model=RegisterProviderResponse,
+    summary="Register a new storage provider",
+    description="Dynamically registers a new cloud storage provider without restarting the service.",
+    status_code=201,
+)
+async def register_provider(payload: RegisterProviderRequest):
+    ptype = payload.provider_type.lower()
+    pid = payload.provider_id or f"{ptype}_{uuid.uuid4().hex[:8]}"
+
+    if pid in _orchestrator.pool.providers:
+        raise HTTPException(status_code=409, detail=f"Provider '{pid}' is already registered")
+
+    try:
+        provider = None
+        creds = payload.credentials
+
+        if ptype == "s3":
+            from tachyon.providers.s3 import S3Provider
+            provider = S3Provider(pid, credentials=creds)
+        elif ptype == "dropbox":
+            from tachyon.providers.dropbox import DropboxProvider
+            provider = DropboxProvider(pid, credentials=creds)
+        elif ptype == "gdrive":
+            from tachyon.providers.gdrive import GoogleDriveProvider
+            provider = GoogleDriveProvider(pid, credentials=creds)
+        elif ptype == "onedrive":
+            from tachyon.providers.onedrive import OneDriveProvider
+            provider = OneDriveProvider(pid, credentials=creds)
+        elif ptype in ("disk", "local"):
+            from tachyon.providers.disk import DiskProvider
+            storage_path = creds.get("storage_path", f"/tmp/tachyon_{pid}")
+            provider = DiskProvider(pid, storage_path=storage_path)
+        elif ptype in ("object_storage", "r2", "b2", "minio"):
+            from tachyon.providers.object_storage import ObjectStorageProvider
+            provider = ObjectStorageProvider(pid, credentials=creds)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown provider type: {ptype}")
+
+        _orchestrator.pool.register(pid, provider)
+        healthy = await provider.health_check()
+
+        return RegisterProviderResponse(
+            provider_id=pid,
+            provider_type=ptype,
+            registered=True,
+            healthy=healthy,
+            message=f"Provider '{pid}' registered successfully",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Provider registration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Provider registration failed: {e}")
 
 
 # ─────────────────────────────────────────────
