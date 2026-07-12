@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.config import get_env
 from app.core.errors import AppError
 from app.modules.storage_verification.models import TachyonManifest
-from tachyon.core.erasure import ReedSolomonCodec
+from tachyon.core.erasure import ReedSolomonCodec, DATA_SHARDS, PARITY_SHARDS
 from tachyon.core.providers.pool import ProviderPool
 from tachyon.core.manifest import ManifestManager
 from tachyon.core.retrieval import ShardRetriever
@@ -33,7 +33,8 @@ class TachyonOrchestrator:
                       filename: str,
                       data: bytes,
                       metadata: dict = None,
-                      owner_user_id: int = None) -> TachyonManifest:
+                      owner_user_id: int = None,
+                      content_type: str = None) -> TachyonManifest:
         """
         Orchestrate parallel upload of erasure-coded shards.
         NEVER write to local disk.
@@ -45,23 +46,17 @@ class TachyonOrchestrator:
         # 2. Compute sha256
         sha256 = hashlib.sha256(data).hexdigest()
 
-        # 3. Check for duplicate using JSON-aware query
-        # Metadata is stored as {"_metadata": {"sha256": "..."}}
-        # SQLite: TachyonManifest.provider_mapping["_metadata"]["sha256"].as_string() == sha256
-        # Postgres: TachyonManifest.provider_mapping[("_metadata", "sha256")].as_string() == sha256
-        print(f"DEBUG: Checking for duplicate with sha256: {sha256}")
+        # 3. Check for duplicate
         stmt = select(TachyonManifest).where(
             TachyonManifest.provider_mapping["_metadata"]["sha256"].as_string() == sha256
         ).limit(1)
         result = await db.execute(stmt)
-        print(f"DEBUG: Result is {result}")
         existing = result.scalar_one_or_none()
-        print(f"DEBUG: Existing is {existing}")
         if existing:
             return existing
 
-        # 4. Encode
-        shards = self.codec.encode(data, data_shards=6, parity_shards=3)
+        # 4. Encode using configured shard counts
+        shards = self.codec.encode(data, data_shards=DATA_SHARDS, parity_shards=PARITY_SHARDS)
 
         # 5. Upload shards in parallel
         async def _upload_one(i, shard):
@@ -87,7 +82,7 @@ class TachyonOrchestrator:
         successful_uploads = [r for r in results if isinstance(r, dict)]
         failures = len(results) - len(successful_uploads)
 
-        if failures > 3:
+        if failures > PARITY_SHARDS:
             raise AppError("Upload failed: too many shard failures", status_code=503, code="upload_failed")
 
         # 7. Build shard_locations
@@ -95,7 +90,8 @@ class TachyonOrchestrator:
 
         # 8. Create manifest
         manifest = await self.manifests.create(
-            db, file_id, filename, len(data), sha256, shard_locations, owner_user_id
+            db, file_id, filename, len(data), sha256, shard_locations,
+            owner_user_id, content_type=content_type
         )
 
         # 9. Publish Redis event
@@ -126,19 +122,23 @@ class TachyonOrchestrator:
         shard_locations = manifest.provider_mapping.get("shards", [])
 
         # 2. Download shards in parallel
-        total_expected = 9
+        total_expected = DATA_SHARDS + PARITY_SHARDS
         downloaded_shards = await self.retriever.retrieve_shards_parallel(shard_locations, self.pool)
 
         shards_with_nones = [None] * total_expected
-        # Correctly map downloaded shards to their indices
         sorted_locs = sorted(shard_locations, key=lambda x: x["shard_index"])
         for i, loc in enumerate(sorted_locs):
-             if i < len(downloaded_shards):
-                 shards_with_nones[loc["shard_index"]] = downloaded_shards[i]
+            if i < len(downloaded_shards):
+                shards_with_nones[loc["shard_index"]] = downloaded_shards[i]
 
-        # 3. Decode
+        # 3. Decode — pass original_size to avoid null-byte stripping corruption
         try:
-            data = self.codec.decode(shards_with_nones, data_shards=6, parity_shards=3)
+            data = self.codec.decode(
+                shards_with_nones,
+                data_shards=DATA_SHARDS,
+                parity_shards=PARITY_SHARDS,
+                original_size=manifest.size_bytes
+            )
         except Exception as e:
             logger.error(f"Decoding failed for {file_id}: {e}")
             raise AppError("Retrieval failed: data unrecoverable", status_code=503, code="retrieval_failed")
@@ -149,7 +149,6 @@ class TachyonOrchestrator:
         if expected_sha256 and sha256 != expected_sha256:
             raise AppError("Data corruption detected", status_code=500, code="data_corrupt")
 
-        # 5. Return data
         return data
 
     async def delete(self, db: AsyncSession, file_id: str) -> bool:
@@ -173,7 +172,7 @@ class TachyonOrchestrator:
         # 3. Mark manifest deleted
         await self.manifests.mark_deleted(db, file_id)
 
-        # 4. Publish: vit:tachyon:deleted {file_id}
+        # 4. Publish event
         try:
             from app.services.cache import _get_redis
             redis = _get_redis()
@@ -187,7 +186,6 @@ class TachyonOrchestrator:
     async def verify(self, db: AsyncSession,
                       file_id: str) -> dict:
         """Challenge-response verification."""
-        # 1. Load manifest
         manifest = await self.manifests.get(db, file_id)
         if not manifest:
             raise AppError("Manifest not found", status_code=404, code="not_found")
@@ -196,13 +194,9 @@ class TachyonOrchestrator:
         if not shard_locations:
             return {"verified": False, "shards_checked": 0, "shards_healthy": 0, "degraded": True}
 
-        # 2. Pick 3 random shard_locations
         to_check = random.sample(shard_locations, min(3, len(shard_locations)))
-
-        # 3. Download those shards
         downloaded = await self.retriever.retrieve_shards_parallel(to_check, self.pool)
 
-        # 4. Verify each hash matches manifest shard_hash
         shards_healthy = 0
         for i, shard_data in enumerate(downloaded):
             if shard_data:
@@ -215,12 +209,12 @@ class TachyonOrchestrator:
         verified = health_score == 1.0
         degraded = health_score < 0.8
 
-        # Update manifest health_score
         await self.manifests.update_health(db, file_id, health_score, datetime.now(timezone.utc))
 
         return {
             "verified": verified,
             "shards_checked": shards_checked,
             "shards_healthy": shards_healthy,
+            "health_score": round(health_score, 4),
             "degraded": degraded
         }
