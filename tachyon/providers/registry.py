@@ -264,11 +264,19 @@ class ProviderRegistry:
         """Active diagnostic check over all registered endpoints."""
         status = {}
         for pid, provider in self.providers.items():
-            healthy = await provider.health_check()
-            usage = await provider.get_usage()
+            try:
+                healthy = await provider.health_check()
+            except Exception as e:
+                logger.warning(f"Health check failed for provider {pid}: {e}")
+                healthy = False
+
             usage_pct = 0.0
-            if usage.get("quota_bytes", 0) > 0:
-                usage_pct = usage["used_bytes"] / usage["quota_bytes"]
+            try:
+                usage = await provider.get_usage()
+                if usage.get("quota_bytes", 0) > 0:
+                    usage_pct = usage["used_bytes"] / usage["quota_bytes"]
+            except Exception as e:
+                logger.warning(f"Usage check failed for provider {pid}: {e}")
 
             status[pid] = {
                 "healthy": healthy,
