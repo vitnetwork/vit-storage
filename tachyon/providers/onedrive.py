@@ -67,6 +67,7 @@ class OneDriveProvider(CloudProvider):
         self._cached_token = None
         self._permanently_disabled = False
         self._disable_reason: str = ""
+        self._last_upload_error = None   # For diagnostics via /debug/providers
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -185,6 +186,7 @@ class OneDriveProvider(CloudProvider):
                 )
             return res.status_code in (200, 201)
         except Exception as e:
+            self._last_upload_error = repr(e)
             logger.error(f"OneDrive upload failed [{self.account_id}]: {e}")
             return False
 

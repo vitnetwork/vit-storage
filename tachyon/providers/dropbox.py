@@ -69,6 +69,7 @@ class DropboxProvider(CloudProvider):
         self._dbx = None
         self._permanently_disabled = False   # set True on bad-credential detection
         self._disable_reason: str = ""
+        self._last_upload_error = None        # For diagnostics via /debug/providers
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -161,6 +162,7 @@ class DropboxProvider(CloudProvider):
             await asyncio.to_thread(_upload)
             return True
         except Exception as e:
+            self._last_upload_error = repr(e)
             logger.error(f"Dropbox upload failed [{self.account_id}]: {e}")
             return False
 

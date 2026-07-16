@@ -327,6 +327,15 @@ class ProviderRegistry:
                 self._upload_failures.pop(pid, None)  # reset strike counter on success
                 return pid, file_id
             except Exception as e:
+                # Check for permanent provider failure (e.g. Drive service account quota)
+                if getattr(provider, "_permanently_disabled", False):
+                    reason = getattr(provider, "_disable_reason", str(e))
+                    logger.error(f"Provider {pid} permanently disabled — removing from pool: {reason}")
+                    self.disabled_providers[pid] = reason
+                    # Remove from active providers so it is never tried again
+                    self.providers.pop(pid, None)
+                    break  # restart loop with updated provider list
+
                 self._upload_failures[pid] = self._upload_failures.get(pid, 0) + 1
                 strikes = self._upload_failures[pid]
                 # Give providers a grace period: quarantine only after 2 consecutive failures.

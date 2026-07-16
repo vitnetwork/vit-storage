@@ -31,8 +31,10 @@ class GoogleDriveProvider(CloudProvider):
         self._credentials_dict = credentials
         self._folder_id = folder_id or os.getenv(f"GDRIVE_{account_id.upper()}_FOLDER_ID")
         self._service = None
-        self._name_to_id = {}         # Memoization lookup cache for files
-        self._last_upload_error = None  # Last upload error for diagnostics
+        self._name_to_id = {}              # Memoization lookup cache for files
+        self._last_upload_error  = None    # Last upload error for diagnostics
+        self._permanently_disabled = False # Set True on known-permanent errors
+        self._disable_reason       = ""
 
     def _get_service(self):
         if self._service:
@@ -190,6 +192,20 @@ class GoogleDriveProvider(CloudProvider):
             return True
         except Exception as e:
             self._last_upload_error = repr(e)
+            err_str = str(e)
+            # Service accounts have no Drive storage quota — this is a permanent limitation.
+            # Disable immediately so the registry stops routing shards here.
+            if "storageQuotaExceeded" in err_str or "Service Accounts do not have storage quota" in err_str:
+                self._permanently_disabled = True
+                self._disable_reason = (
+                    "Google Drive service accounts have no storage quota. "
+                    "Use VIT Connect → Connect Google Drive (OAuth) instead."
+                )
+                logger.error(
+                    "[%s] Google Drive permanently disabled: %s",
+                    self.account_id, self._disable_reason,
+                )
+                raise RuntimeError(self._disable_reason)
             logger.error(f"Google Drive upload failed [{self.account_id}]: {e}")
             return False
 
@@ -403,6 +419,8 @@ class GoogleDriveProvider(CloudProvider):
         return res.get("webContentLink", f"https://drive.google.com/uc?id={file_id}&export=download")
 
     async def health_check(self) -> bool:
+        if self._permanently_disabled:
+            return False
         try:
             service = self._get_service()
             def _ping():
