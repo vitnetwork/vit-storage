@@ -390,7 +390,13 @@
                                         </td>
                                         <td x-text="formatBytes(f.total_size)" style="white-space:nowrap;"></td>
                                         <td><span class="badge badge-gray" x-text="f.content_type ? f.content_type.split('/')[0] : 'binary'" style="font-size:10px;"></span></td>
-                                        <td x-text="f.fragments.length"></td>
+                                        <td>
+                                            <span x-text="f.fragments.length"></span>
+                                            <template x-if="f.fragments && f.fragments.length">
+                                              <span style="font-size:10px;color:var(--text3);margin-left:4px;"
+                                                x-text="'[' + [...new Set((f.fragments||[]).map(fr=>fr.provider.split('_')[0]))].join('+') + ']'"></span>
+                                            </template>
+                                        </td>
                                         <td>
                                             <span class="dot" :class="healthDot(f.health_score)"></span>
                                             <span style="font-size:11px; color:var(--text3); margin-left:4px;"
@@ -865,6 +871,34 @@ function storageApp() {
 
         async init() {
             await this.loadDashboard();
+            // Handle OAuth callback / deep-link URL params
+            const params = new URLSearchParams(window.location.search);
+            const oauthSuccess = params.get('success');
+            const oauthError   = params.get('error');
+            const deepTab      = params.get('tab');
+            if (deepTab === 'connect' || oauthSuccess || oauthError) {
+                this.tab = 'connect';
+                await this.loadConnect();
+            }
+            // Clean URL without reloading
+            if (oauthSuccess || oauthError || deepTab) {
+                window.history.replaceState({}, '', window.location.pathname);
+            }
+        },
+
+        async refreshCurrent() {
+            const map = {
+                dashboard: () => this.loadDashboard(),
+                files:     () => this.loadFiles(),
+                shared:    () => this.loadSharedLinks(),
+                connect:   () => this.loadConnect(),
+                admin:     () => this.loadAdmin(),
+                api:       () => {},
+                wallet:    () => this.loadWallet && this.loadWallet(),
+                docs:      () => {},
+            };
+            const fn = map[this.tab];
+            if (fn) await fn();
         },
 
         async loadDashboard() {

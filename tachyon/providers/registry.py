@@ -32,7 +32,7 @@ class ProviderRegistry:
     """
 
     QUOTA_GUARD_PCT       = 0.90
-    DEGRADED_TIMEOUT_SECONDS = 600
+    DEGRADED_TIMEOUT_SECONDS = 120
     HEALTH_CHECK_TIMEOUT  = 12.0   # seconds per provider
 
     def __init__(self):
@@ -41,6 +41,7 @@ class ProviderRegistry:
         self.degraded_until: Dict[str, float]    = {}
         self.usage_cache: Dict[str, Dict[str, Any]] = {}
         self._current_index = 0
+        self._upload_failures: Dict[str, int] = {}  # consecutive failures per provider
         self._bootstrap_providers()
 
     # ------------------------------------------------------------------
@@ -323,13 +324,19 @@ class ProviderRegistry:
 
             try:
                 file_id = await provider.upload_shard(shard_id, data)
+                self._upload_failures.pop(pid, None)  # reset strike counter on success
                 return pid, file_id
             except Exception as e:
+                self._upload_failures[pid] = self._upload_failures.get(pid, 0) + 1
+                strikes = self._upload_failures[pid]
+                # Give providers a grace period: quarantine only after 2 consecutive failures.
+                # First failure gets a short 15s cooldown so a transient error recovers fast.
+                cooldown = 15 if strikes == 1 else self.DEGRADED_TIMEOUT_SECONDS
                 logger.error(
-                    f"Provider {pid} failed upload. Quarantining for "
-                    f"{self.DEGRADED_TIMEOUT_SECONDS}s. Error: {e}"
+                    f"Provider {pid} upload failure #{strikes}. "
+                    f"Cooldown: {cooldown}s. Error: {e}"
                 )
-                self.degraded_until[pid] = time.time() + self.DEGRADED_TIMEOUT_SECONDS
+                self.degraded_until[pid] = time.time() + cooldown
 
         # Last-resort fallback to local disk
         try:

@@ -505,3 +505,55 @@ async def get_wallet():
         ai_requests_today=0,
         ai_requests_limit=100,
     )
+
+
+# ─────────────────────────────────────────────
+# DEBUG: Provider Upload Test
+# ─────────────────────────────────────────────
+
+@extended_router.get(
+    "/debug/providers",
+    summary="Per-provider upload/download probe (admin diagnostic)",
+    description="Runs a tiny test upload on each registered provider and reports pass/fail with the actual error message.",
+)
+async def debug_providers():
+    import time, asyncio
+    registry = _orchestrator.pool
+    results = {}
+    probe_data = b"vit-probe-" + str(int(time.time())).encode()
+
+    async def _probe_one(pid: str, provider):
+        t0 = time.monotonic()
+        try:
+            name = f"__probe_{pid}_{int(time.time())}__"
+            ok = await asyncio.wait_for(provider.upload(probe_data, name), timeout=12.0)
+            if ok:
+                # Cleanup (best-effort)
+                try:
+                    await asyncio.wait_for(provider.delete(name), timeout=5.0)
+                except Exception:
+                    pass
+                return {"ok": True, "latency_ms": round((time.monotonic()-t0)*1000, 1)}
+            else:
+                return {"ok": False, "error": "upload() returned False", "latency_ms": round((time.monotonic()-t0)*1000, 1)}
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "Timed out after 12s"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    tasks = [_probe_one(pid, p) for pid, p in registry.providers.items()]
+    probe_results = await asyncio.gather(*tasks, return_exceptions=True)
+    for (pid, _), result in zip(registry.providers.items(), probe_results):
+        results[pid] = result if not isinstance(result, Exception) else {"ok": False, "error": str(result)}
+
+    # Also report disabled providers
+    for pid, reason in registry.disabled_providers.items():
+        results[pid] = {"ok": False, "error": f"Disabled at startup: {reason}", "disabled": True}
+
+    # Report quarantine state
+    now = time.time()
+    for pid, until in registry.degraded_until.items():
+        if until > now and pid in results:
+            results[pid]["quarantined_for_s"] = round(until - now)
+
+    return results

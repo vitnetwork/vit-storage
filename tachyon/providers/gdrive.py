@@ -15,6 +15,9 @@ from tachyon.providers.exceptions import FileNotFoundError, StorageError
 
 logger = logging.getLogger(__name__)
 
+# Sentinel: folder lookup was attempted but failed; use Drive root instead
+_GDRIVE_ROOT_SENTINEL = "__root__"
+
 class GoogleDriveProvider(CloudProvider):
     """
     Consolidated Production-Grade Google Drive Provider for Tachyon Fabric.
@@ -72,33 +75,50 @@ class GoogleDriveProvider(CloudProvider):
         return self._service
 
     async def _get_folder_id(self) -> str:
+        """
+        Returns the Drive folder ID for VIT shard storage.
+        Falls back gracefully to None (Drive root) if the folder cannot be found
+        or created — avoiding a RuntimeError that would quarantine this provider.
+        Uses a sentinel so repeated calls don't re-attempt after a failure.
+        """
+        if self._folder_id == _GDRIVE_ROOT_SENTINEL:
+            return None   # previous attempt failed; use Drive root
         if self._folder_id:
             return self._folder_id
 
         service = self._get_service()
-        query = "name = 'tachyon_fragments' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        query = ("name = 'tachyon_fragments' and "
+                 "mimeType = 'application/vnd.google-apps.folder' and trashed = false")
+        try:
+            def _list():
+                return service.files().list(q=query, fields="files(id)").execute()
 
-        def _list():
-            return service.files().list(q=query, fields="files(id)").execute()
+            results = await asyncio.wait_for(asyncio.to_thread(_list), timeout=10.0)
+            files = results.get("files", [])
 
-        results = await asyncio.to_thread(_list)
-        files = results.get("files", [])
+            if files:
+                self._folder_id = files[0]["id"]
+            else:
+                file_metadata = {
+                    "name": "tachyon_fragments",
+                    "mimeType": "application/vnd.google-apps.folder",
+                }
 
-        if files:
-            self._folder_id = files[0]["id"]
-        else:
-            file_metadata = {
-                "name": "tachyon_fragments",
-                "mimeType": "application/vnd.google-apps.folder"
-            }
+                def _create():
+                    return service.files().create(body=file_metadata, fields="id").execute()
 
-            def _create():
-                return service.files().create(body=file_metadata, fields="id").execute()
+                folder = await asyncio.wait_for(asyncio.to_thread(_create), timeout=10.0)
+                self._folder_id = folder.get("id") or _GDRIVE_ROOT_SENTINEL
 
-            folder = await asyncio.to_thread(_create)
-            self._folder_id = folder.get("id")
+        except Exception as exc:
+            logger.warning(
+                "[%s] Google Drive folder setup failed: %s — "
+                "shards will be written to Drive root (no parent folder).",
+                self.account_id, exc,
+            )
+            self._folder_id = _GDRIVE_ROOT_SENTINEL
 
-        return self._folder_id
+        return None if self._folder_id == _GDRIVE_ROOT_SENTINEL else self._folder_id
 
     def _check_name(self, name: str) -> str:
         if ".." in name or name.startswith("/"):
@@ -112,7 +132,10 @@ class GoogleDriveProvider(CloudProvider):
 
         service = self._get_service()
         fid = await self._get_folder_id()
-        query = f"name = '{name}' and '{fid}' in parents and trashed = false"
+        if fid:
+            query = f"name = '{name}' and '{fid}' in parents and trashed = false"
+        else:
+            query = f"name = '{name}' and trashed = false"
 
         def _search():
             return service.files().list(q=query, fields="files(id)").execute()
@@ -143,10 +166,9 @@ class GoogleDriveProvider(CloudProvider):
             except FileNotFoundError:
                 pass
 
-            file_metadata = {
-                "name": name,
-                "parents": [folder_id]
-            }
+            file_metadata = {"name": name}
+            if folder_id:
+                file_metadata["parents"] = [folder_id]
 
             media = MediaIoBaseUpload(
                 io.BytesIO(data),
