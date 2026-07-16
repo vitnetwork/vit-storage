@@ -8,11 +8,55 @@ from tachyon.providers.exceptions import FileNotFoundError, StorageError
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Credential validator
+# ---------------------------------------------------------------------------
+
+def _validate_onedrive_secret(secret: str, context: str = "") -> None:
+    """
+    Raise ValueError if *secret* looks like a placeholder rather than a real
+    Azure client secret.
+
+    Real Azure client secrets are at least 24 characters, contain no spaces,
+    and are composed of alphanumeric + special characters.
+    """
+    placeholders = [
+        "i already have", "your_secret", "placeholder", "change me",
+        "todo", "xxx", "insert", "put your", "add your",
+    ]
+    if not secret:
+        raise ValueError(f"OneDrive client secret is empty{context}.")
+    if " " in secret:
+        raise ValueError(
+            f"OneDrive client secret contains spaces{context}. "
+            "This looks like a placeholder — please set ONEDRIVE_CLIENT_SECRET "
+            "to the actual secret VALUE (not the secret ID) from Azure App registrations."
+        )
+    if len(secret) < 16:
+        raise ValueError(
+            f"OneDrive client secret is suspiciously short ({len(secret)} chars){context}."
+        )
+    lower = secret.lower()
+    for p in placeholders:
+        if p in lower:
+            raise ValueError(
+                f"OneDrive client secret looks like a placeholder (matched '{p}'){context}. "
+                "Please update ONEDRIVE_CLIENT_SECRET with the real credential."
+            )
+
+
 class OneDriveProvider(CloudProvider):
     """
     Consolidated Production-Grade OneDrive Provider for Tachyon Fabric.
-    Uses async httpx and MSAL silent cache AD tokens to minimize network roundtrips
-    and avoid Azure rate-limiting under heavy parallel burst transfers.
+
+    Changes vs. previous version
+    ─────────────────────────────
+    • Credential validation before MSAL is instantiated — catches placeholder
+      secrets early and marks the provider disabled without making any network call.
+    • health_check() has a 10-second asyncio timeout.
+    • All methods handle exceptions gracefully so one provider failure cannot
+      crash the whole service.
     """
 
     def __init__(self, account_id: str, credentials: Optional[dict] = None):
@@ -21,66 +65,114 @@ class OneDriveProvider(CloudProvider):
         self._credentials = credentials or {}
         self._msal_app = None
         self._cached_token = None
+        self._permanently_disabled = False
+        self._disable_reason: str = ""
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _get_msal_app(self):
+        if self._permanently_disabled:
+            raise StorageError(
+                f"OneDrive provider '{self.account_id}' is disabled: {self._disable_reason}",
+                code="provider_disabled",
+                status_code=503,
+            )
         if self._msal_app:
             return self._msal_app
 
         import msal
-        client_id = self._credentials.get("client_id") or os.getenv("ONEDRIVE_CLIENT_ID")
-        client_secret = self._credentials.get("client_secret") or os.getenv("ONEDRIVE_CLIENT_SECRET")
-        tenant_id = self._credentials.get("tenant_id") or os.getenv("ONEDRIVE_TENANT_ID", "common")
 
-        if not all([client_id, client_secret]):
-            raise RuntimeError(f"OneDrive client credentials missing for account: {self.account_id}")
+        client_id     = self._credentials.get("client_id")     or os.getenv("ONEDRIVE_CLIENT_ID")
+        client_secret = self._credentials.get("client_secret") or os.getenv("ONEDRIVE_CLIENT_SECRET")
+        tenant_id     = self._credentials.get("tenant_id")     or os.getenv("ONEDRIVE_TENANT_ID", "common")
+
+        if not client_id or not client_secret:
+            self._permanently_disabled = True
+            self._disable_reason = "ONEDRIVE_CLIENT_ID or ONEDRIVE_CLIENT_SECRET is not set."
+            raise RuntimeError(
+                f"OneDrive client credentials missing for account: {self.account_id}"
+            )
+
+        # ── Validate secret format before handing to MSAL ─────────────
+        try:
+            _validate_onedrive_secret(
+                client_secret, context=f" for account '{self.account_id}'"
+            )
+        except ValueError as exc:
+            self._permanently_disabled = True
+            self._disable_reason = str(exc)
+            logger.error(
+                f"[onedrive/{self.account_id}] Credential validation failed — "
+                f"provider disabled: {exc}"
+            )
+            raise StorageError(
+                str(exc), code="invalid_credential", status_code=503
+            )
 
         self._msal_app = msal.ConfidentialClientApplication(
             client_id,
             authority=f"https://login.microsoftonline.com/{tenant_id}",
-            client_credential=client_secret
+            client_credential=client_secret,
         )
         return self._msal_app
 
     def _get_token(self) -> str:
-        # Microsoft AD token endpoint requests can be slow.
-        # We leverage MSAL acquire_token_silent to read local in-memory token cache.
-        app = self._get_msal_app()
+        if self._permanently_disabled:
+            raise StorageError(
+                f"OneDrive provider '{self.account_id}' is disabled: {self._disable_reason}",
+                code="provider_disabled",
+                status_code=503,
+            )
+        app    = self._get_msal_app()
         scopes = ["https://graph.microsoft.com/.default"]
 
-        # Read silent token cache first
         result = app.acquire_token_silent(scopes, account=None)
         if result and "access_token" in result:
             return result["access_token"]
 
-        # Call active token endpoint
         result = app.acquire_token_for_client(scopes=scopes)
         if "access_token" not in result:
-            raise RuntimeError(f"OneDrive MSAL acquisition failed: {result.get('error_description')}")
-
+            raise RuntimeError(
+                f"OneDrive MSAL acquisition failed: {result.get('error_description')}"
+            )
         return result["access_token"]
 
     def _get_drive_endpoint(self) -> str:
-        user_id = self._credentials.get("user_id") or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_USER_ID")
+        user_id = (
+            self._credentials.get("user_id")
+            or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_USER_ID")
+        )
         if user_id:
             return f"https://graph.microsoft.com/v1.0/users/{user_id}/drive"
         return "https://graph.microsoft.com/v1.0/me/drive"
 
     def _clean_path(self, name: str) -> str:
         if ".." in name or name.startswith("/"):
-            raise StorageError(f"Security Warning: Path traversal blocked: {name}", code="path_traversal", status_code=400)
-
-        # OneDrive Graph API folders root
-        folder_id = self._credentials.get("folder_id") or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+            raise StorageError(
+                f"Security Warning: Path traversal blocked: {name}",
+                code="path_traversal",
+                status_code=400,
+            )
+        folder_id = (
+            self._credentials.get("folder_id")
+            or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+        )
         if folder_id == "root":
             return f"/items/root:/{name}" if name else "/items/root"
         return f"/items/{folder_id}:/{name}" if name else f"/items/{folder_id}"
+
+    # ------------------------------------------------------------------
+    # CloudProvider interface
+    # ------------------------------------------------------------------
 
     async def upload(self, data: bytes, name: str) -> bool:
         path = self._clean_path(name)
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{path}:/content"
+            url   = f"{drive}{path}:/content"
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 res = await client.put(
@@ -88,8 +180,8 @@ class OneDriveProvider(CloudProvider):
                     content=data,
                     headers={
                         "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/octet-stream"
-                    }
+                        "Content-Type":  "application/octet-stream",
+                    },
                 )
             return res.status_code in (200, 201)
         except Exception as e:
@@ -101,7 +193,7 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{path}:/content"
+            url   = f"{drive}{path}:/content"
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
@@ -114,13 +206,15 @@ class OneDriveProvider(CloudProvider):
             return None
 
     async def stream(self, name: str) -> AsyncIterator[bytes]:
-        path = self._clean_path(name)
+        path  = self._clean_path(name)
         token = self._get_token()
         drive = self._get_drive_endpoint()
-        url = f"{drive}{path}:/content"
+        url   = f"{drive}{path}:/content"
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            async with client.stream("GET", url, headers={"Authorization": f"Bearer {token}"}) as response:
+            async with client.stream(
+                "GET", url, headers={"Authorization": f"Bearer {token}"}
+            ) as response:
                 if response.status_code == 404:
                     raise FileNotFoundError(f"File {name} not found")
                 response.raise_for_status()
@@ -132,13 +226,15 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{path}"
+            url   = f"{drive}{path}"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.delete(url, headers={"Authorization": f"Bearer {token}"})
             return res.status_code in (200, 204)
         except Exception as e:
-            logger.warning(f"OneDrive delete failed [{self.account_id}] for {name}: {e}")
+            logger.warning(
+                f"OneDrive delete failed [{self.account_id}] for {name}: {e}"
+            )
             return False
 
     async def rename(self, old_name: str, new_name: str) -> bool:
@@ -146,13 +242,13 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{old_path}"
+            url   = f"{drive}{old_path}"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.patch(
                     url,
                     json={"name": new_name},
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
             return res.status_code == 200
         except Exception as e:
@@ -164,14 +260,13 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{src_path}/copy"
+            url   = f"{drive}{src_path}/copy"
 
-            # OneDrive copy is asynchronous and returns a 202 accepted response with a location header
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.post(
                     url,
                     json={"name": dest_name},
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
             return res.status_code in (200, 202)
         except Exception as e:
@@ -183,7 +278,7 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{path}"
+            url   = f"{drive}{path}"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
@@ -192,75 +287,87 @@ class OneDriveProvider(CloudProvider):
             return False
 
     async def metadata(self, name: str) -> Dict[str, Any]:
-        token = self._get_token()
-        drive = self._get_drive_endpoint()
-
-        if not name:
-            # Query active drive storage allocation quota
-            url = f"{drive}"
-            async with httpx.AsyncClient() as client:
-                res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-            data = res.json()
-            q = data.get("quota", {})
-            return {
-                "total_bytes": q.get("total", 0),
-                "used_bytes": q.get("used", 0),
-                "free_bytes": q.get("remaining", 0),
-                "type": "directory"
-            }
-
-        path = self._clean_path(name)
-        url = f"{drive}{path}"
-        async with httpx.AsyncClient() as client:
-            res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-
-        if res.status_code == 404:
-            raise FileNotFoundError(f"OneDrive file {name} not found")
-
-        data = res.json()
-        is_folder = "folder" in data
-        return {
-            "name": data.get("name"),
-            "size": data.get("size", 0),
-            "created_at": data.get("createdDateTime"),
-            "modified_at": data.get("lastModifiedDateTime"),
-            "type": "directory" if is_folder else "file"
-        }
-
-    async def checksum(self, name: str) -> str:
-        # OneDrive returns file hashes (SHA1 / SHA256) inside the item file facet metadata
-        meta = await self.metadata(name)
-        path = self._clean_path(name)
-        token = self._get_token()
-        drive = self._get_drive_endpoint()
-        url = f"{drive}{path}"
-
-        async with httpx.AsyncClient() as client:
-            res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-
-        data = res.json()
-        f_facet = data.get("file", {})
-        hashes = f_facet.get("hashes", {})
-        # Fallback SHA1 (standard for personal) or SHA256 (standard for business OneDrive)
-        return hashes.get("sha256Hash") or hashes.get("sha1Hash") or hashes.get("quickXorHash") or ""
-
-    async def create_directory(self, path: str) -> bool:
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            # Post folder schema to OneDrive children API
-            folder_id = self._credentials.get("folder_id") or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+
+            if not name:
+                url = f"{drive}"
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res  = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+                data = res.json()
+                q    = data.get("quota", {})
+                return {
+                    "total_bytes": q.get("total", 0),
+                    "used_bytes":  q.get("used",  0),
+                    "free_bytes":  q.get("remaining", 0),
+                    "type":        "directory",
+                }
+
+            path = self._clean_path(name)
+            url  = f"{drive}{path}"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+            if res.status_code == 404:
+                raise FileNotFoundError(f"OneDrive file {name} not found")
+
+            data      = res.json()
+            is_folder = "folder" in data
+            return {
+                "name":        data.get("name"),
+                "size":        data.get("size", 0),
+                "created_at":  data.get("createdDateTime"),
+                "modified_at": data.get("lastModifiedDateTime"),
+                "type":        "directory" if is_folder else "file",
+            }
+        except (StorageError, FileNotFoundError):
+            raise
+        except Exception as e:
+            raise StorageError(
+                f"OneDrive metadata failed [{self.account_id}]: {e}",
+                code="metadata_error",
+                status_code=500,
+            )
+
+    async def checksum(self, name: str) -> str:
+        path  = self._clean_path(name)
+        token = self._get_token()
+        drive = self._get_drive_endpoint()
+        url   = f"{drive}{path}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+        data    = res.json()
+        f_facet = data.get("file", {})
+        hashes  = f_facet.get("hashes", {})
+        return (
+            hashes.get("sha256Hash")
+            or hashes.get("sha1Hash")
+            or hashes.get("quickXorHash")
+            or ""
+        )
+
+    async def create_directory(self, path: str) -> bool:
+        try:
+            token     = self._get_token()
+            drive     = self._get_drive_endpoint()
+            folder_id = (
+                self._credentials.get("folder_id")
+                or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+            )
             url = f"{drive}/items/{folder_id}/children"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.post(
                     url,
                     json={
-                        "name": path,
+                        "name":   path,
                         "folder": {},
-                        "@microsoft.graph.conflictBehavior": "replace"
+                        "@microsoft.graph.conflictBehavior": "replace",
                     },
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
             return res.status_code in (200, 201)
         except Exception as e:
@@ -279,7 +386,12 @@ class OneDriveProvider(CloudProvider):
                 item_path = self._clean_path(path)
                 url = f"{drive}{item_path}/children"
             else:
-                folder_id = self._credentials.get("folder_id") or os.getenv(f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root")
+                folder_id = (
+                    self._credentials.get("folder_id")
+                    or os.getenv(
+                        f"ONEDRIVE_{self.account_id.upper()}_FOLDER_ID", "root"
+                    )
+                )
                 url = f"{drive}/items/{folder_id}/children"
 
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -297,27 +409,47 @@ class OneDriveProvider(CloudProvider):
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            url = f"{drive}{path}/createLink"
+            url   = f"{drive}{path}/createLink"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.post(
                     url,
                     json={"type": "view", "scope": "anonymous"},
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
             if res.status_code in (200, 201):
-                return res.json().get("link", {}).get("webUrl", f"https://onedrive.live.com/download?id={name}")
+                return res.json().get("link", {}).get(
+                    "webUrl", f"https://onedrive.live.com/download?id={name}"
+                )
             return f"https://onedrive.live.com/download?id={name}"
         except Exception as e:
             logger.error(f"OneDrive generate_signed_url failed: {e}")
             return f"https://onedrive.live.com/download?id={name}"
 
     async def health_check(self) -> bool:
+        """Health check with 10-second timeout and early-exit on disabled provider."""
+        if self._permanently_disabled:
+            logger.warning(
+                f"[onedrive/{self.account_id}] health_check skipped — provider disabled: "
+                f"{self._disable_reason}"
+            )
+            return False
+
         try:
             token = self._get_token()
             drive = self._get_drive_endpoint()
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                res = await client.get(f"{drive}", headers={"Authorization": f"Bearer {token}"})
-            return res.status_code == 200
-        except Exception:
+
+            async def _check():
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res = await client.get(
+                        f"{drive}", headers={"Authorization": f"Bearer {token}"}
+                    )
+                return res.status_code == 200
+
+            return await asyncio.wait_for(_check(), timeout=12.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[onedrive/{self.account_id}] health_check timed out")
+            return False
+        except Exception as e:
+            logger.warning(f"[onedrive/{self.account_id}] health_check failed: {e}")
             return False
