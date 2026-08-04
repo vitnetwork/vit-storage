@@ -108,15 +108,22 @@ async def lifespan(app: FastAPI):
     worker = TachyonVerificationWorker(interval_seconds=3600)
     task   = asyncio.create_task(worker.start())
 
-    app.state.db_healthy    = db_healthy
-    app.state.redis_healthy = redis_healthy
-    app.state.worker        = worker
+    # ── 6. VIT Chain proof reporter ───────────────────────────────────────
+    from tachyon.proof_reporter import ProofReporter
+    proof_reporter = ProofReporter()
+    await proof_reporter.start()
+
+    app.state.db_healthy     = db_healthy
+    app.state.redis_healthy  = redis_healthy
+    app.state.worker         = worker
+    app.state.proof_reporter = proof_reporter
 
     logger.info(f"VIT Storage Service v{VERSION} ready.")
     yield
 
     # ── Graceful shutdown ─────────────────────────────────────────────────
     logger.info("Service shutting down...")
+    await proof_reporter.stop()
     await worker.stop()
     task.cancel()
     try:
