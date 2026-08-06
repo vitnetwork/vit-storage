@@ -280,14 +280,26 @@ async def health(request: Request):
             "available": registry.available_provider_count(),
         }
 
-    status_str = "quantum_stable" if db_ok else "degraded"
+    # Detect if the service is still warming up (lifespan hasn't finished)
+    startup_complete = hasattr(app.state, "db_healthy")
+    if not startup_complete:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status":      "warming",
+                "retry_after": 15,
+                "version":     VERSION,
+            },
+        )
+
+    status_str = "healthy" if db_ok else "degraded"
     return {
         "status":     status_str,
         "version":    VERSION,
         "plane":      "coordination",
         "timestamp":  datetime.utcnow().isoformat(),
-        "database":   "connected"                          if db_ok    else "disconnected",
-        "redis":      "connected"                          if redis_ok else "not_configured_or_disconnected",
+        "database":   "connected"      if db_ok    else "disconnected",
+        "redis":      "connected"      if redis_ok else "not_configured_or_disconnected",
         "providers":  provider_summary,
     }
 
