@@ -12,7 +12,7 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 dropbox>=12.2.0
-msal>=1.37.0
+msal>=1.38.0
 redis>=8.0.1
 sqlalchemy[asyncio]
 aiosqlite
